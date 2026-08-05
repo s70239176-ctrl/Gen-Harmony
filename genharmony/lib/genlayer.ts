@@ -1,6 +1,7 @@
 "use client";
 
-import { defineChain, generatePrivateKey, privateKeyToAccount } from "viem";
+import { defineChain } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createConfig, http, useAccount, useWalletClient } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
