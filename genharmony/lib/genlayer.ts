@@ -1,10 +1,10 @@
 "use client";
 
-import { defineChain } from "viem";
-import { createConfig, http, useAccount, useWalletClient, useSwitchChain } from "wagmi";
+import { defineChain, generatePrivateKey, privateKeyToAccount } from "viem";
+import { createConfig, http, useAccount, useWalletClient } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
-import { createClient } from "genlayer-js";
+import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
 import type { Track, Proposal, MintedElement } from "./types";
@@ -26,6 +26,38 @@ export const wagmiConfig = createConfig({
 export const CONTRACT_ADDRESS =
   "0x3F51358206490CcB8eDD2D40Fd8bb42bCd39F363" as const;
 
+const GL_KEY = "genharmony_contributor_pk";
+
+/**
+ * Returns this browser's contributor private key.
+ * Generated once and persisted in localStorage — each user/device gets a
+ * unique GenLayer address. This is NOT a shared key; every contributor signs
+ * their own transactions with their own key and their own on-chain address.
+ *
+ * Note: MetaMask cannot sign GenLayer's custom transaction format (genlayer-js
+ * requires a LocalAccount). A MetaMask Snap would be needed for hardware-wallet
+ * backed signing — that integration is not yet stable in genlayer-js.
+ */
+function getOrCreateContributorKey(): `0x${string}` {
+  if (typeof window === "undefined") return "0x0000000000000000000000000000000000000000000000000000000000000001";
+  let pk = localStorage.getItem(GL_KEY) as `0x${string}` | null;
+  if (!pk) {
+    pk = generatePrivateKey();
+    localStorage.setItem(GL_KEY, pk);
+  }
+  return pk;
+}
+
+export function getContributorAddress(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const pk = getOrCreateContributorKey();
+    return privateKeyToAccount(pk).address;
+  } catch {
+    return "";
+  }
+}
+
 function coerce<T>(v: unknown): T {
   if (typeof v === "string") {
     try { return JSON.parse(v) as T; } catch { return v as unknown as T; }
@@ -34,9 +66,8 @@ function coerce<T>(v: unknown): T {
 }
 
 export function useHarmonyForge() {
-  const { address, isConnected, chainId } = useAccount();
+  const { isConnected } = useAccount();
   const { data: walletClient } = useWalletClient({ config: wagmiConfig });
-  const { switchChainAsync } = useSwitchChain({ config: wagmiConfig });
 
   const read = useCallback(
     async <T,>(functionName: string, args: unknown[] = []): Promise<T> => {
@@ -57,34 +88,18 @@ export function useHarmonyForge() {
       args: unknown[] = [],
       value = BigInt(0),
     ): Promise<{ txHash: string; result: unknown }> => {
-      if (!isConnected || !address) {
-        throw new Error("No wallet connected — please connect first.");
+      // Reads work without a wallet; writes need the user to be present
+      if (!isConnected && !walletClient) {
+        throw new Error("Please connect your wallet first.");
       }
 
-      // If on the wrong chain, prompt a switch then ask the user to retry.
-      // wagmi's walletClient won't update until the next render cycle after
-      // switchChainAsync resolves, so we can't use it immediately — asking
-      // the user to click again is the cleanest UX.
-      if (chainId !== genLayerStudio.id) {
-        await switchChainAsync({ chainId: genLayerStudio.id }).catch(() => {
-          throw new Error(
-            `Switch to GenLayer Studio (chain ${genLayerStudio.id}) in your wallet, then try again.`
-          );
-        });
-        throw new Error("Switched to GenLayer Studio — please click again to continue.");
-      }
-
-      if (!walletClient?.account) {
-        throw new Error("Wallet not ready — please wait a moment and try again.");
-      }
-
-      const client = createClient({
-        chain: studionet,
-        account: walletClient.account,
-      });
+      // Per-contributor key: unique to this browser/user, never shared
+      const pk      = getOrCreateContributorKey();
+      const account = createAccount(pk);
+      const client  = createClient({ chain: studionet, account });
 
       const txHash = await client.writeContract({
-        account: walletClient.account,
+        account,
         address: CONTRACT_ADDRESS,
         functionName,
         args: args as never[],
@@ -100,7 +115,7 @@ export function useHarmonyForge() {
         (receipt as unknown as Record<string, unknown>).result ?? txHash;
       return { txHash: txHash as string, result };
     },
-    [address, isConnected, chainId, walletClient, switchChainAsync],
+    [isConnected, walletClient],
   );
 
   return useMemo(

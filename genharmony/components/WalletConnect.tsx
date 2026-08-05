@@ -3,6 +3,8 @@
 import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
 import { Power, Wallet, Loader2 } from "lucide-react";
 import { Button } from "./ui/Button";
+import { getContributorAddress } from "@/lib/genlayer";
+import { useEffect, useState } from "react";
 
 function truncate(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -13,10 +15,12 @@ export function WalletConnect() {
   const { connectors, connect, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: balance } = useBalance({ address });
+  const [glAddress, setGlAddress] = useState("");
 
-  // Wallet was previously connected and wagmi is restoring the session.
-  // Show a neutral loading state instead of the connect button so the
-  // user never sees a misleading "not connected" flash.
+  useEffect(() => {
+    setGlAddress(getContributorAddress());
+  }, []);
+
   if (isReconnecting) {
     return (
       <div className="flex items-center gap-2 rounded-sm border border-line bg-rail/60 px-3 py-2">
@@ -35,6 +39,11 @@ export function WalletConnect() {
           {balance && (
             <p className="led text-[10px] text-muted">
               {Number(balance.formatted).toFixed(3)} {balance.symbol}
+            </p>
+          )}
+          {glAddress && (
+            <p className="led text-[10px] text-pulse" title="Your unique GenLayer contributor address">
+              GL {truncate(glAddress)}
             </p>
           )}
         </div>
@@ -61,4 +70,3 @@ export function WalletConnect() {
     </Button>
   );
 }
-
