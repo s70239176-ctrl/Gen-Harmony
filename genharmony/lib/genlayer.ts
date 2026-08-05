@@ -79,7 +79,7 @@ export function useHarmonyForge() {
         if (eth) {
           const accounts = await eth.request({ method: "eth_accounts" });
           if (accounts?.[0]) {
-            account = { address: accounts[0] as `0x${string}`, type: "json-rpc" } as typeof account;
+            account = { address: accounts[0] as `0x${string}`, type: "json-rpc" } as unknown as typeof account;
           }
         }
       }
