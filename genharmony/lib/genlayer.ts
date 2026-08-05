@@ -14,7 +14,7 @@ export const genLayerStudio = defineChain({
   id: 61_999,
   name: "GenLayer Studio",
   nativeCurrency: { name: "GEN", symbol: "GEN", decimals: 18 },
-  rpcUrls: { default: { http: ["https://studio.genlayer.com/api"] } },
+  rpcUrls: { default: { http: ["https://studio.genlayer.com:8443/api"] } },
   testnet: true,
 });
 
