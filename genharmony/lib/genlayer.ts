@@ -61,36 +61,30 @@ export function useHarmonyForge() {
         throw new Error("No wallet connected — please connect first.");
       }
 
-      // Auto-switch to GenLayer Studio if on wrong chain
+      // If on the wrong chain, prompt a switch then ask the user to retry.
+      // wagmi's walletClient won't update until the next render cycle after
+      // switchChainAsync resolves, so we can't use it immediately — asking
+      // the user to click again is the cleanest UX.
       if (chainId !== genLayerStudio.id) {
-        try {
-          await switchChainAsync({ chainId: genLayerStudio.id });
-        } catch {
+        await switchChainAsync({ chainId: genLayerStudio.id }).catch(() => {
           throw new Error(
-            `Please switch to the GenLayer Studio network (chain ${genLayerStudio.id}) in your wallet.`
+            `Switch to GenLayer Studio (chain ${genLayerStudio.id}) in your wallet, then try again.`
           );
-        }
+        });
+        throw new Error("Switched to GenLayer Studio — please click again to continue.");
       }
 
-      // walletClient may still be loading after chain switch — fall back to window.ethereum
-      let account = walletClient?.account;
-      if (!account && typeof window !== "undefined") {
-        const eth = (window as { ethereum?: { request: (a: { method: string }) => Promise<string[]> } }).ethereum;
-        if (eth) {
-          const accounts = await eth.request({ method: "eth_accounts" });
-          if (accounts?.[0]) {
-            account = { address: accounts[0] as `0x${string}`, type: "json-rpc" } as unknown as typeof account;
-          }
-        }
-      }
-      if (!account) {
-        throw new Error("Wallet account unavailable — please try reconnecting.");
+      if (!walletClient?.account) {
+        throw new Error("Wallet not ready — please wait a moment and try again.");
       }
 
-      const client = createClient({ chain: studionet, account });
+      const client = createClient({
+        chain: studionet,
+        account: walletClient.account,
+      });
 
       const txHash = await client.writeContract({
-        account,
+        account: walletClient.account,
         address: CONTRACT_ADDRESS,
         functionName,
         args: args as never[],
