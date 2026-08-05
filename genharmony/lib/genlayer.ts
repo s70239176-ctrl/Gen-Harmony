@@ -1,7 +1,7 @@
 "use client";
 
 import { defineChain } from "viem";
-import { createConfig, http, useAccount, useWalletClient } from "wagmi";
+import { createConfig, http, useAccount, useWalletClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
 import { createClient } from "genlayer-js";
@@ -34,8 +34,9 @@ function coerce<T>(v: unknown): T {
 }
 
 export function useHarmonyForge() {
-  const { address } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { data: walletClient } = useWalletClient({ config: wagmiConfig });
+  const { switchChainAsync } = useSwitchChain({ config: wagmiConfig });
 
   const read = useCallback(
     async <T,>(functionName: string, args: unknown[] = []): Promise<T> => {
@@ -56,29 +57,56 @@ export function useHarmonyForge() {
       args: unknown[] = [],
       value = BigInt(0),
     ): Promise<{ txHash: string; result: unknown }> => {
-      if (!walletClient?.account) {
+      if (!isConnected || !address) {
         throw new Error("No wallet connected — please connect first.");
       }
-      const client = createClient({
-        chain: studionet,
-        account: walletClient.account,
-      });
+
+      // Auto-switch to GenLayer Studio if on wrong chain
+      if (chainId !== genLayerStudio.id) {
+        try {
+          await switchChainAsync({ chainId: genLayerStudio.id });
+        } catch {
+          throw new Error(
+            `Please switch to the GenLayer Studio network (chain ${genLayerStudio.id}) in your wallet.`
+          );
+        }
+      }
+
+      // walletClient may still be loading after chain switch — fall back to window.ethereum
+      let account = walletClient?.account;
+      if (!account && typeof window !== "undefined") {
+        const eth = (window as { ethereum?: { request: (a: { method: string }) => Promise<string[]> } }).ethereum;
+        if (eth) {
+          const accounts = await eth.request({ method: "eth_accounts" });
+          if (accounts?.[0]) {
+            account = { address: accounts[0] as `0x${string}`, type: "json-rpc" } as typeof account;
+          }
+        }
+      }
+      if (!account) {
+        throw new Error("Wallet account unavailable — please try reconnecting.");
+      }
+
+      const client = createClient({ chain: studionet, account });
+
       const txHash = await client.writeContract({
-        account: walletClient.account,
+        account,
         address: CONTRACT_ADDRESS,
         functionName,
         args: args as never[],
         value,
       });
+
       const receipt = await client.waitForTransactionReceipt({
         hash: txHash,
         status: TransactionStatus.ACCEPTED,
       });
+
       const result =
         (receipt as unknown as Record<string, unknown>).result ?? txHash;
       return { txHash: txHash as string, result };
     },
-    [walletClient],
+    [address, isConnected, chainId, walletClient, switchChainAsync],
   );
 
   return useMemo(
