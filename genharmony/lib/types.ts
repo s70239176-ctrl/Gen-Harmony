@@ -1,3 +1,16 @@
+export interface HistoryEntry {
+  version: number;
+  contributor: string;
+  proposal_id: string | null;
+  rationale: string;
+  scores: {
+    originality: number;
+    quality: number;
+    emotional: number;
+    canon_fit: number;
+  } | null;
+}
+
 export interface Track {
   id: string;
   title: string;
@@ -7,6 +20,9 @@ export interface Track {
   current_content: string;
   version: number;
   parent_track_id?: string | null;
+  contributors?: string[];
+  audio_url?: string;
+  history?: HistoryEntry[];
 }
 
 export interface ProposalScores {
@@ -15,6 +31,7 @@ export interface ProposalScores {
   originality: number;
   emotional: number;
   canon_fit: number;
+  plagiarism_risk?: "low" | "medium" | "high";
   evolved_content: string;
   rationale: string;
 }
@@ -38,4 +55,3 @@ export interface MintedElement {
   owner: string;
   version_at_mint: number;
 }
-
