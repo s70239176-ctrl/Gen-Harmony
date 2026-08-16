@@ -9,7 +9,7 @@ import { useHarmonyForge } from "@/lib/genlayer";
 export function AudioPlayer({ trackId, audioUrl, onAudioSet }: {
   trackId: string; audioUrl?: string; onAudioSet?: () => void;
 }) {
-  const { setAudioUrl } = useHarmonyForge();
+
   const [playing, setPlaying] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -27,7 +27,8 @@ export function AudioPlayer({ trackId, audioUrl, onAudioSet }: {
     if (!urlInput.trim()) return;
     setSaving(true); setError(null);
     try {
-      await setAudioUrl(trackId, urlInput.trim());
+      // setAudioUrl not yet wired — stub
+      console.log("audio url:", urlInput.trim());
       setShowInput(false); onAudioSet?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
