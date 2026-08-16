@@ -2,13 +2,13 @@
 
 import { defineChain } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { createConfig, http, useAccount, useWalletClient } from "wagmi";
+import { createConfig, http, useAccount, useWalletClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
 import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
-import type { Track, Proposal, MintedElement } from "./types";
+import type { Track, Proposal, MintedElement, HistoryEntry } from "./types";
 
 export const genLayerStudio = defineChain({
   id: 61_999,
@@ -29,134 +29,119 @@ export const CONTRACT_ADDRESS =
 
 const GL_KEY = "genharmony_contributor_pk";
 
-/**
- * Returns this browser's contributor private key.
- * Generated once and persisted in localStorage — each user/device gets a
- * unique GenLayer address. This is NOT a shared key; every contributor signs
- * their own transactions with their own key and their own on-chain address.
- *
- * Note: MetaMask cannot sign GenLayer's custom transaction format (genlayer-js
- * requires a LocalAccount). A MetaMask Snap would be needed for hardware-wallet
- * backed signing — that integration is not yet stable in genlayer-js.
- */
 function getOrCreateContributorKey(): `0x${string}` {
-  if (typeof window === "undefined") return "0x0000000000000000000000000000000000000000000000000000000000000001";
+  if (typeof window === "undefined")
+    return "0x0000000000000000000000000000000000000000000000000000000000000001";
   let pk = localStorage.getItem(GL_KEY) as `0x${string}` | null;
-  if (!pk) {
-    pk = generatePrivateKey();
-    localStorage.setItem(GL_KEY, pk);
-  }
+  if (!pk) { pk = generatePrivateKey(); localStorage.setItem(GL_KEY, pk); }
   return pk;
 }
 
 export function getContributorAddress(): string {
   if (typeof window === "undefined") return "";
-  try {
-    const pk = getOrCreateContributorKey();
-    return privateKeyToAccount(pk).address;
-  } catch {
-    return "";
-  }
+  try { return privateKeyToAccount(getOrCreateContributorKey()).address; } catch { return ""; }
 }
 
 function coerce<T>(v: unknown): T {
-  if (typeof v === "string") {
-    try { return JSON.parse(v) as T; } catch { return v as unknown as T; }
-  }
+  if (typeof v === "string") { try { return JSON.parse(v) as T; } catch { return v as unknown as T; } }
   return v as unknown as T;
 }
 
 export function useHarmonyForge() {
-  const { isConnected } = useAccount();
+  const { chainId } = useAccount();
   const { data: walletClient } = useWalletClient({ config: wagmiConfig });
+  const { switchChainAsync } = useSwitchChain({ config: wagmiConfig });
 
-  const read = useCallback(
-    async <T,>(functionName: string, args: unknown[] = []): Promise<T> => {
-      const client = createClient({ chain: studionet });
-      const result = await client.readContract({
-        address: CONTRACT_ADDRESS,
-        functionName,
-        args: args as never[],
-      });
-      return coerce<T>(result);
-    },
-    [],
-  );
+  const read = useCallback(async <T,>(functionName: string, args: unknown[] = []): Promise<T> => {
+    const client = createClient({ chain: studionet });
+    const result = await client.readContract({
+      address: CONTRACT_ADDRESS, functionName, args: args as never[],
+    });
+    return coerce<T>(result);
+  }, []);
 
-  const write = useCallback(
-    async (
-      functionName: string,
-      args: unknown[] = [],
-      value = BigInt(0),
-    ): Promise<{ txHash: string; result: unknown }> => {
-      // Reads work without a wallet; writes need the user to be present
-      if (!isConnected && !walletClient) {
-        throw new Error("Please connect your wallet first.");
-      }
+  const write = useCallback(async (
+    functionName: string, args: unknown[] = [], value = BigInt(0),
+  ): Promise<{ txHash: string; result: unknown }> => {
+    if (chainId !== genLayerStudio.id) {
+      try { await switchChainAsync({ chainId: genLayerStudio.id }); }
+      catch { throw new Error(`Switch to GenLayer Studio (chain ${genLayerStudio.id}) in your wallet.`); }
+      throw new Error("Switched to GenLayer Studio — please click again to continue.");
+    }
+    const pk = getOrCreateContributorKey();
+    const account = createAccount(pk);
+    const client = createClient({ chain: studionet, account });
+    const txHash = await client.writeContract({
+      account, address: CONTRACT_ADDRESS, functionName, args: args as never[], value,
+    });
+    const receipt = await client.waitForTransactionReceipt({
+      hash: txHash, status: TransactionStatus.ACCEPTED,
+    });
+    const result = (receipt as unknown as Record<string, unknown>).result ?? txHash;
+    return { txHash: txHash as string, result };
+  }, [chainId, switchChainAsync]);
 
-      // Per-contributor key: unique to this browser/user, never shared
-      const pk      = getOrCreateContributorKey();
-      const account = createAccount(pk);
-      const client  = createClient({ chain: studionet, account });
+  return useMemo(() => ({
+    // writes
+    submitSeed: (title: string, seedPrompt: string, genre: string) =>
+      write("submit_seed", [title, seedPrompt, genre]).then(({ result }) => coerce<string>(result)),
+    proposeEvolution: (trackId: string, text: string, type: string) =>
+      write("propose_evolution", [trackId, text, type]).then(({ result }) => coerce<string>(result)),
+    forkTrack: (parentTrackId: string, newTitle: string) =>
+      write("fork_track", [parentTrackId, newTitle]).then(({ result }) => coerce<string>(result)),
+    evaluateProposal: (proposalId: string) =>
+      write("evaluate_proposal", [proposalId]).then(({ txHash }) => txHash),
+    fundTreasury: (valueWei: bigint) =>
+      write("fund_treasury", [], valueWei).then(({ txHash }) => txHash),
+    claimRewards: () =>
+      write("claim_rewards", []).then(({ txHash }) => txHash),
+    mintElement: (trackId: string, kind: string, valueWei: bigint) =>
+      write("mint_element", [trackId, kind], valueWei).then(({ result }) => coerce<string>(result)),
+    setAudioUrl: (trackId: string, audioUrl: string) =>
+      write("set_audio_url", [trackId, audioUrl]).then(({ txHash }) => txHash),
+    pause: () => write("pause", []).then(({ txHash }) => txHash),
+    unpause: () => write("unpause", []).then(({ txHash }) => txHash),
+    updateConfig: (key: string, value: bigint) =>
+      write("update_config", [key, value]).then(({ txHash }) => txHash),
 
-      const txHash = await client.writeContract({
-        account,
-        address: CONTRACT_ADDRESS,
-        functionName,
-        args: args as never[],
-        value,
-      });
+    // reads
+    getTrack: (trackId: string) => read<Track>("get_track", [trackId]),
+    getTrackHistory: (trackId: string) =>
+      read<unknown>("get_track_history", [trackId]).then((v) => coerce<HistoryEntry[]>(v)),
+    getProposal: (proposalId: string) => read<Proposal>("get_proposal", [proposalId]),
+    listActiveTracks: () => read<string[]>("list_active_tracks", []),
+    getMyTracks: () =>
+      read<unknown>("get_my_tracks", []).then((v) => coerce<string[]>(v)),
+    getTracksByGenre: (genre: string) =>
+      read<unknown>("get_tracks_by_genre", [genre]).then((v) => coerce<string[]>(v)),
+    getTopTracks: (limit = 10) =>
+      read<unknown>("get_top_tracks", [String(limit)]).then((v) => coerce<string[]>(v)),
+    getPendingRewards: (addr: string) =>
+      read<unknown>("get_pending_rewards", [addr]).then(String),
+    getTreasuryBalance: () =>
+      read<unknown>("get_treasury_balance", []).then(String),
+    getContributionCount: (addr: string) =>
+      read<unknown>("get_contribution_count", [addr]).then(String),
+    getMyMintedElements: () => read<string[]>("get_my_minted_elements", []),
+    getMintedElement: (elementId: string) => read<MintedElement>("get_minted_element", [elementId]),
+    getConfig: () =>
+      read<unknown>("get_config", []).then((v) => coerce<ContractConfig>(v)),
+    getEvents: (fromId: number, limit: number) =>
+      read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),
+  }), [read, write]);
+}
 
-      const receipt = await client.waitForTransactionReceipt({
-        hash: txHash,
-        status: TransactionStatus.ACCEPTED,
-      });
+export interface ContractConfig {
+  approval_threshold: number;
+  max_reward_bps: number;
+  min_reward_score: number;
+  max_prompt_chars: number;
+  creator_royalty_bps: number;
+  is_paused: boolean;
+}
 
-      const result =
-        (receipt as unknown as Record<string, unknown>).result ?? txHash;
-      return { txHash: txHash as string, result };
-    },
-    [isConnected, walletClient],
-  );
-
-  return useMemo(
-    () => ({
-      submitSeed: (title: string, seedPrompt: string, genre: string) =>
-        write("submit_seed", [title, seedPrompt, genre])
-          .then(({ result }) => coerce<string>(result)),
-      proposeEvolution: (trackId: string, text: string, type: string) =>
-        write("propose_evolution", [trackId, text, type])
-          .then(({ result }) => coerce<string>(result)),
-      forkTrack: (parentTrackId: string, newTitle: string) =>
-        write("fork_track", [parentTrackId, newTitle])
-          .then(({ result }) => coerce<string>(result)),
-      evaluateProposal: (proposalId: string) =>
-        write("evaluate_proposal", [proposalId])
-          .then(({ txHash }) => txHash),
-      fundTreasury: (valueWei: bigint) =>
-        write("fund_treasury", [], valueWei).then(({ txHash }) => txHash),
-      claimRewards: () =>
-        write("claim_rewards", []).then(({ txHash }) => txHash),
-      mintElement: (trackId: string, kind: string, valueWei: bigint) =>
-        write("mint_element", [trackId, kind], valueWei)
-          .then(({ result }) => coerce<string>(result)),
-      getTrack: (trackId: string) =>
-        read<Track>("get_track", [trackId]),
-      getProposal: (proposalId: string) =>
-        read<Proposal>("get_proposal", [proposalId]),
-      listActiveTracks: () =>
-        read<string[]>("list_active_tracks", []),
-      getPendingRewards: (addr: string) =>
-        read<unknown>("get_pending_rewards", [addr]).then(String),
-      getTreasuryBalance: () =>
-        read<unknown>("get_treasury_balance", []).then(String),
-      getContributionCount: (addr: string) =>
-        read<unknown>("get_contribution_count", [addr]).then(String),
-      getMyMintedElements: () =>
-        read<string[]>("get_my_minted_elements", []),
-      getMintedElement: (elementId: string) =>
-        read<MintedElement>("get_minted_element", [elementId]),
-    }),
-    [read, write],
-  );
+export interface ContractEvent {
+  id: string;
+  type: string;
+  data: Record<string, string>;
 }
