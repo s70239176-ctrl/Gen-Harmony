@@ -9,46 +9,57 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
     <div className="flex items-center gap-2">
       <span className="w-20 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{label}</span>
       <div className="h-1 flex-1 rounded-full bg-line">
-        <div className="h-1 rounded-full bg-gradient-to-r from-pulse to-current"
-          style={{ width: `${value}%`, transition: "width 0.6s ease" }} />
+        <div
+          className="h-1 rounded-full bg-gradient-to-r from-pulse to-current"
+          style={{ width: `${value}%`, transition: "width 0.6s ease" }}
+        />
       </div>
       <span className="led w-7 text-right text-[10px] text-ink">{value}</span>
     </div>
   );
 }
 
-export function TrackHistory({ trackId }: { trackId: string }) {
+export function TrackHistory({ trackId, version }: { trackId: string; version: number }) {
   const { getTrackHistory, getTrack } = useHarmonyForge();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     async function load() {
       try {
-        // Try get_track_history first (new contract)
         const h = await getTrackHistory(trackId);
-        if (Array.isArray(h) && h.length > 0) { setHistory(h); return; }
-        // Fallback: build history from track data (old contract)
+        if (Array.isArray(h) && h.length > 0) {
+          setHistory(h);
+          return;
+        }
+        // Fallback for old-contract tracks without stored history
         const track = await getTrack(trackId);
         const fallback: HistoryEntry[] = [
           { version: 0, contributor: track.creator, proposal_id: null, rationale: "Genesis seed", scores: null },
         ];
-        if (track.version > 0) {
-          for (let v = 1; v <= track.version; v++) {
-            fallback.push({ version: v, contributor: "unknown", proposal_id: null, rationale: "Evolution merged", scores: null });
-          }
+        for (let v = 1; v <= track.version; v++) {
+          fallback.push({ version: v, contributor: "contributor", proposal_id: null, rationale: "Evolution merged", scores: null });
         }
         setHistory(fallback);
       } catch {
         setHistory([]);
-      } finally { setLoading(false); }
+      } finally {
+        setLoading(false);
+      }
     }
     load();
+  // Re-fetch whenever version changes so new history entries appear immediately after approval
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackId]);
+  }, [trackId, version]);
 
   if (loading) return <p className="font-mono text-[12px] text-muted">Loading lineage…</p>;
-  if (history.length === 0) return <p className="font-mono text-[12px] text-muted">No history yet — propose and approve an evolution to see scores here.</p>;
+
+  if (history.length === 0) return (
+    <p className="font-mono text-[12px] text-muted">
+      No history yet — approve an evolution to see scores here.
+    </p>
+  );
 
   return (
     <ol className="relative space-y-0 border-l border-line pl-6">
@@ -56,13 +67,14 @@ export function TrackHistory({ trackId }: { trackId: string }) {
         <li key={entry.version} className="relative py-4">
           <span className={`absolute -left-[27px] top-5 h-3 w-3 rounded-full border-2 ${
             entry.version === history[history.length - 1]?.version
-              ? "border-pulse bg-pulse shadow-glow-pulse" : "border-line bg-rail"
+              ? "border-pulse bg-pulse shadow-glow-pulse"
+              : "border-line bg-rail"
           }`} />
           <div className="flex items-baseline gap-3 mb-1">
             <span className="led text-[12px] text-ink">v{entry.version}</span>
             <span className="font-mono text-[10px] text-muted">
-              {entry.version === 0 ? "Genesis seed"
-                : entry.contributor === "unknown" ? "Approved evolution"
+              {entry.version === 0
+                ? "Genesis seed"
                 : `by ${entry.contributor.slice(0, 8)}…`}
             </span>
             {entry.proposal_id && (
@@ -70,7 +82,9 @@ export function TrackHistory({ trackId }: { trackId: string }) {
             )}
           </div>
           {entry.rationale && (
-            <p className="font-body text-[13px] text-muted leading-relaxed mb-2">{entry.rationale}</p>
+            <p className="font-body text-[13px] text-muted leading-relaxed mb-2">
+              {entry.rationale}
+            </p>
           )}
           {entry.scores ? (
             <div className="mt-2 space-y-1 rounded-sm border border-line/40 bg-rail/40 p-3">
@@ -81,8 +95,8 @@ export function TrackHistory({ trackId }: { trackId: string }) {
             </div>
           ) : (
             entry.version > 0 && (
-              <p className="font-mono text-[10px] text-muted/60">
-                Score data available on new contract deployments
+              <p className="font-mono text-[10px] text-muted/60 italic">
+                Score data recorded on new contract deployments
               </p>
             )
           )}

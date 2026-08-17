@@ -82,7 +82,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
 
             {tab === "content"
               ? <p className="whitespace-pre-wrap font-body text-[15px] leading-relaxed text-ink/90">{track.current_content}</p>
-              : <TrackHistory trackId={track.id} />
+              : <TrackHistory trackId={track.id} version={track.version} />
             }
 
             <AudioPlayer trackId={track.id} version={track.version} />
