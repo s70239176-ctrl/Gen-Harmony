@@ -124,6 +124,8 @@ export function useHarmonyForge() {
       read<unknown>("get_contribution_count", [addr]).then(String),
     getMyMintedElements: () => read<string[]>("get_my_minted_elements", []),
     getMintedElement: (elementId: string) => read<MintedElement>("get_minted_element", [elementId]),
+    getEvents: (fromId: number, limit: number) =>
+      read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),
     getConfig: () =>
       read<unknown>("get_config", []).then((v) => coerce<ContractConfig>(v)),
     getEvents: (fromId: number, limit: number) =>
@@ -144,4 +146,26 @@ export interface ContractEvent {
   id: string;
   type: string;
   data: Record<string, string>;
+}
+
+/** 
+ * After propose_evolution, scan recent events to find the actual on-chain proposal ID.
+ * genlayer-js doesn't always expose receipt.result, so we use the event log as ground truth.
+ */
+export async function findProposalId(trackId: string, proposer: string, afterEventId: number): Promise<string | null> {
+  try {
+    const client = createClient({ chain: studionet });
+    const events = await client.readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: "get_events",
+      args: [String(afterEventId), "20"] as never[],
+    });
+    const parsed = coerce<Array<{ type: string; data: Record<string, string> }>>(events);
+    const match = parsed.reverse().find(
+      (e) => e.type === "PROPOSAL_SUBMITTED" && e.data.track_id === trackId
+    );
+    return match?.data.proposal_id ?? null;
+  } catch {
+    return null;
+  }
 }

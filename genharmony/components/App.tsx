@@ -3,16 +3,19 @@
 import { useState, useEffect } from "react";
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useAccount } from "wagmi";
 import { wagmiConfig } from "@/lib/genlayer";
 import { Navigation, type View } from "./Navigation";
 import { TrackGrid } from "./TrackGrid";
 import { TrackDetail } from "./TrackDetail";
 import { RewardsPanel } from "./RewardsPanel";
 import { NetworkGuard } from "./NetworkGuard";
+import { WelcomePage } from "./WelcomePage";
 
 const queryClient = new QueryClient();
 
 function Shell() {
+  const { isConnected } = useAccount();
   const [view, setView] = useState<View>("deck");
   const [openTrackId, setOpenTrackId] = useState<string | null>(null);
 
@@ -21,6 +24,8 @@ function Shell() {
     const t = params.get("track");
     if (t) { setOpenTrackId(t); setView("deck"); }
   }, []);
+
+  if (!isConnected) return <WelcomePage />;
 
   return (
     <div className="min-h-screen">

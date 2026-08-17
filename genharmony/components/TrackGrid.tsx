@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
+import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, TrendingUp, Layers, Filter } from "lucide-react";
 import { useHarmonyForge } from "@/lib/genlayer";
 import type { Track } from "@/lib/types";
@@ -12,41 +11,63 @@ import { Button } from "./ui/Button";
 type Mode = "all" | "top" | "mine";
 
 export function TrackGrid({ onOpen }: { onOpen: (id: string) => void }) {
-  const { isConnected } = useAccount();
   const { listActiveTracks, getTopTracks, getMyTracks, getTrack } = useHarmonyForge();
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>("all");
   const [genreFilter, setGenreFilter] = useState("");
+  const [modeError, setModeError] = useState<string | null>(null);
 
-  async function refresh(m: Mode = mode) {
+  const refresh = useCallback(async (m: Mode, genre: string) => {
     setLoading(true);
+    setModeError(null);
     try {
       let ids: string[] = [];
-      if (m === "top") ids = await getTopTracks(20);
-      else if (m === "mine") ids = await getMyTracks();
-      else ids = await listActiveTracks();
-      const hydrated = await Promise.all(ids.map((id) => getTrack(id)));
-      setTracks(
-        genreFilter
-          ? hydrated.filter((t) => t.genre.toLowerCase().includes(genreFilter.toLowerCase()))
-          : hydrated
+
+      if (m === "top") {
+        try { ids = await getTopTracks(20); }
+        catch {
+          setModeError("Top tracks unavailable on this contract — showing all");
+          ids = await listActiveTracks();
+        }
+      } else if (m === "mine") {
+        try { ids = await getMyTracks(); }
+        catch {
+          setModeError("Mine filter unavailable on this contract — showing all");
+          ids = await listActiveTracks();
+        }
+      } else {
+        ids = await listActiveTracks();
+      }
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        setTracks([]); return;
+      }
+
+      const hydrated = await Promise.all(
+        ids.map((id) => getTrack(String(id)).catch(() => null))
       );
-    } finally { setLoading(false); }
+      const valid = hydrated.filter(Boolean) as Track[];
+      setTracks(genre
+        ? valid.filter((t) => t.genre.toLowerCase().includes(genre.toLowerCase()))
+        : valid
+      );
+    } catch (err) {
+      console.error("TrackGrid refresh error:", err);
+      setTracks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [listActiveTracks, getTopTracks, getMyTracks, getTrack]);
+
+  useEffect(() => { refresh("all", ""); }, [refresh]);
+
+  function switchMode(m: Mode) {
+    setMode(m);
+    refresh(m, genreFilter);
   }
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isConnected]);
-
-  function switchMode(m: Mode) { setMode(m); refresh(m); }
-
   const [featured, ...rest] = tracks;
-
-  if (!isConnected) return (
-    <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <p className="font-display text-lg text-ink">The deck is dark.</p>
-      <p className="max-w-sm font-body text-sm text-muted">Connect a wallet to browse the studio.</p>
-    </div>
-  );
 
   return (
     <div className="space-y-10">
@@ -67,15 +88,15 @@ export function TrackGrid({ onOpen }: { onOpen: (id: string) => void }) {
             </button>
           ) : (
             <p className="relative mt-3 font-body text-sm text-muted">
-              {loading ? "Cueing up the catalog…" : "No tracks yet — press the first seed."}
+              {loading ? "Cueing up the catalog…" : "No tracks yet — press your first seed."}
             </p>
           )}
         </div>
-        <CreateSeedForm onCreated={() => refresh()} />
+        <CreateSeedForm onCreated={() => refresh(mode, genreFilter)} />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex rounded-sm border border-line overflow-hidden">
+        <div className="flex overflow-hidden rounded-sm border border-line">
           {(["all", "top", "mine"] as Mode[]).map((m) => (
             <button key={m} onClick={() => switchMode(m)}
               className={`px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] transition-colors ${
@@ -87,26 +108,26 @@ export function TrackGrid({ onOpen }: { onOpen: (id: string) => void }) {
             </button>
           ))}
         </div>
-        <input
-          value={genreFilter}
-          onChange={(e) => setGenreFilter(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && refresh()}
+        <input value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && refresh(mode, genreFilter)}
           placeholder="Filter by genre…"
           className="rounded-sm border border-line bg-rail/60 px-3 py-1.5 font-mono text-[11px]
-            text-ink placeholder:text-muted/60 focus:border-current/60 focus:outline-none"
-        />
-        <Button variant="ghost" onClick={() => refresh()} loading={loading} className="!px-3 !py-1.5 ml-auto">
+            text-ink placeholder:text-muted/60 focus:border-current/60 focus:outline-none" />
+        <Button variant="ghost" onClick={() => refresh(mode, genreFilter)}
+          loading={loading} className="ml-auto !px-3 !py-1.5">
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
 
+      {modeError && (
+        <p className="font-mono text-[11px] text-vinyl">{modeError}</p>
+      )}
+
       {rest.length === 0 && !loading
         ? <p className="font-body text-sm text-muted">Nothing spinning yet — submit a seed above.</p>
-        : (
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+        : <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
             {rest.map((t) => <TrackCard key={t.id} track={t} onOpen={onOpen} />)}
           </div>
-        )
       }
     </div>
   );
