@@ -9,7 +9,8 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
     <div className="flex items-center gap-2">
       <span className="w-20 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{label}</span>
       <div className="h-1 flex-1 rounded-full bg-line">
-        <div className="h-1 rounded-full bg-gradient-to-r from-pulse to-current transition-all" style={{ width: `${value}%` }} />
+        <div className="h-1 rounded-full bg-gradient-to-r from-pulse to-current"
+          style={{ width: `${value}%`, transition: "width 0.6s ease" }} />
       </div>
       <span className="led w-7 text-right text-[10px] text-ink">{value}</span>
     </div>
@@ -17,16 +18,37 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 }
 
 export function TrackHistory({ trackId }: { trackId: string }) {
-  const { getTrackHistory } = useHarmonyForge();
+  const { getTrackHistory, getTrack } = useHarmonyForge();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getTrackHistory(trackId).then(setHistory).catch(() => setHistory([])).finally(() => setLoading(false));
+    async function load() {
+      try {
+        // Try get_track_history first (new contract)
+        const h = await getTrackHistory(trackId);
+        if (Array.isArray(h) && h.length > 0) { setHistory(h); return; }
+        // Fallback: build history from track data (old contract)
+        const track = await getTrack(trackId);
+        const fallback: HistoryEntry[] = [
+          { version: 0, contributor: track.creator, proposal_id: null, rationale: "Genesis seed", scores: null },
+        ];
+        if (track.version > 0) {
+          for (let v = 1; v <= track.version; v++) {
+            fallback.push({ version: v, contributor: "unknown", proposal_id: null, rationale: "Evolution merged", scores: null });
+          }
+        }
+        setHistory(fallback);
+      } catch {
+        setHistory([]);
+      } finally { setLoading(false); }
+    }
+    load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId]);
 
   if (loading) return <p className="font-mono text-[12px] text-muted">Loading lineage…</p>;
+  if (history.length === 0) return <p className="font-mono text-[12px] text-muted">No history yet — propose and approve an evolution to see scores here.</p>;
 
   return (
     <ol className="relative space-y-0 border-l border-line pl-6">
@@ -39,18 +61,30 @@ export function TrackHistory({ trackId }: { trackId: string }) {
           <div className="flex items-baseline gap-3 mb-1">
             <span className="led text-[12px] text-ink">v{entry.version}</span>
             <span className="font-mono text-[10px] text-muted">
-              {entry.version === 0 ? "Genesis seed" : `by ${entry.contributor.slice(0, 8)}…`}
+              {entry.version === 0 ? "Genesis seed"
+                : entry.contributor === "unknown" ? "Approved evolution"
+                : `by ${entry.contributor.slice(0, 8)}…`}
             </span>
-            {entry.proposal_id && <span className="led text-[10px] text-muted/60">#{entry.proposal_id}</span>}
+            {entry.proposal_id && (
+              <span className="led text-[10px] text-muted/60">#{entry.proposal_id}</span>
+            )}
           </div>
-          {entry.rationale && <p className="font-body text-[13px] text-muted leading-relaxed mb-2">{entry.rationale}</p>}
-          {entry.scores && (
+          {entry.rationale && (
+            <p className="font-body text-[13px] text-muted leading-relaxed mb-2">{entry.rationale}</p>
+          )}
+          {entry.scores ? (
             <div className="mt-2 space-y-1 rounded-sm border border-line/40 bg-rail/40 p-3">
               <ScoreBar label="Originality" value={entry.scores.originality} />
               <ScoreBar label="Quality"     value={entry.scores.quality} />
               <ScoreBar label="Emotional"   value={entry.scores.emotional} />
               <ScoreBar label="Canon fit"   value={entry.scores.canon_fit} />
             </div>
+          ) : (
+            entry.version > 0 && (
+              <p className="font-mono text-[10px] text-muted/60">
+                Score data available on new contract deployments
+              </p>
+            )
           )}
         </li>
       ))}

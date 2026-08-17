@@ -85,7 +85,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
               : <TrackHistory trackId={track.id} />
             }
 
-            <AudioPlayer trackId={track.id} audioUrl={track.audio_url || undefined} onAudioSet={refresh} />
+            <AudioPlayer trackId={track.id} version={track.version} />
 
             <Button variant="vinyl" onClick={() => setMintOpen(true)} className="gap-2">
               <Stamp className="h-3.5 w-3.5" />
