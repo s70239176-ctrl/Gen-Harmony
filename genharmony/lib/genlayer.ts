@@ -128,8 +128,6 @@ export function useHarmonyForge() {
       read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),
     getConfig: () =>
       read<unknown>("get_config", []).then((v) => coerce<ContractConfig>(v)),
-    getEvents: (fromId: number, limit: number) =>
-      read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),
   }), [read, write]);
 }
 
