@@ -113,7 +113,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
                         <span className="font-mono text-[12px] uppercase tracking-[0.08em] text-muted">{p.type}</span>
                         <span className="led text-[10px] text-muted/60">#{p.id}</span>
                       </div>
-                      <EvaluateProposalButton proposalId={p.id} onResolved={refresh} />
+                      <EvaluateProposalButton proposalId={p.id} trackId={track.id} onResolved={refresh} />
                     </li>
                   ))}
                 </ul>
