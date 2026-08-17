@@ -31,11 +31,9 @@ function scoreFrom(p: Proposal): Verdict {
 
 export function EvaluateProposalButton({
   proposalId,
-  trackId,
   onResolved,
 }: {
   proposalId: string;
-  trackId: string;
   onResolved?: () => void;
 }) {
   const { evaluateProposal, getProposal } = useHarmonyForge();
@@ -50,31 +48,14 @@ export function EvaluateProposalButton({
     return () => clearInterval(t);
   }, [state]);
 
-  async function resolveRealProposalId(id: string): Promise<string | null> {
-    // Try the given ID first — must be pending AND belong to this track
-    try {
-      const p = await getProposal(id);
-      if (p.status === "pending" && p.track_id === trackId) return id;
-    } catch { /* not found */ }
-
-    // Scan backwards from a high number to find a pending proposal for this track
-    for (let i = 50; i >= 0; i--) {
-      try {
-        const p = await getProposal(String(i));
-        if (p.status === "pending" && p.track_id === trackId) return String(i);
-      } catch { /* skip */ }
-    }
-    return null;
-  }
-
-  async function pollForVerdict(id: string, maxAttempts = 60) {
+  async function pollForVerdict(maxAttempts = 60) {
     setState("polling");
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        const proposal = await getProposal(id);
-        if (proposal.status !== "pending") {
-          setVerdict(scoreFrom(proposal));
+        const p = await getProposal(proposalId);
+        if (p.status !== "pending") {
+          setVerdict(scoreFrom(p));
           setState("done");
           onResolved?.();
           return;
@@ -88,26 +69,43 @@ export function EvaluateProposalButton({
     setState("judging");
     setError(null);
 
+    // Validate the proposal exists and is still pending before spending gas
     try {
-      // Resolve the real pending proposal ID before sending the tx
-      const realId = await resolveRealProposalId(proposalId);
-      if (!realId) {
-        setError(`No pending proposal found for this track. Try submitting a new evolution first.`);
-        setState("error");
+      const existing = await getProposal(proposalId);
+      if (existing.status !== "pending") {
+        // Already has a verdict — just show it directly
+        setVerdict(scoreFrom(existing));
+        setState("done");
         return;
       }
+    } catch {
+      setError(`Proposal #${proposalId} not found on-chain. Make sure you submitted the proposal first.`);
+      setState("error");
+      return;
+    }
 
-      await evaluateProposal(realId);
-      await pollForVerdict(realId);
+    try {
+      await evaluateProposal(proposalId);
+      await pollForVerdict();
     } catch (err) {
       const raw = err instanceof Error ? err.message
         : typeof err === "object" && err !== null ? JSON.stringify(err)
         : String(err);
+
+      // Receipt JSON parse errors from genlayer-js are cosmetic — tx went through
       if (raw.includes("non-whitespace") || raw.includes("JSON at position")) {
-        // Receipt decode error — tx went through, poll anyway
-        const realId = await resolveRealProposalId(proposalId);
-        if (realId) await pollForVerdict(realId);
-        else setState("timeout");
+        await pollForVerdict();
+      } else if (raw.includes("already evaluated")) {
+        // Contract rejected the call — fetch and show the existing verdict
+        try {
+          const p = await getProposal(proposalId);
+          setVerdict(scoreFrom(p));
+          setState("done");
+          onResolved?.();
+        } catch {
+          setError("Proposal already evaluated — refresh the page to see the result.");
+          setState("error");
+        }
       } else {
         setError(raw);
         setState("error");
@@ -116,22 +114,22 @@ export function EvaluateProposalButton({
   }
 
   async function checkNow() {
-    const realId = await resolveRealProposalId(proposalId);
-    if (!realId) { setState("timeout"); return; }
     try {
-      const proposal = await getProposal(realId);
-      if (proposal.status !== "pending") {
-        setVerdict(scoreFrom(proposal));
+      const p = await getProposal(proposalId);
+      if (p.status !== "pending") {
+        setVerdict(scoreFrom(p));
         setState("done");
         onResolved?.();
       } else {
-        await pollForVerdict(realId, 20);
+        await pollForVerdict(20);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setState("error");
     }
   }
+
+  // ---- render states ----
 
   if (state === "judging" || state === "polling") return (
     <div className="space-y-2">
@@ -143,7 +141,7 @@ export function EvaluateProposalButton({
       </div>
       <p className="font-mono text-[10px] text-muted">
         {state === "judging"
-          ? "LLM consensus takes 30–90 seconds — do not close this tab"
+          ? "LLM consensus takes 30–90s — do not close this tab"
           : "Transaction confirmed — polling for on-chain verdict…"}
       </p>
     </div>
@@ -165,21 +163,25 @@ export function EvaluateProposalButton({
     const approved = verdict.status === "approved";
     return (
       <div className="space-y-2">
-        <div className={`rounded-sm border px-4 py-3 ${approved ? "border-current/40" : "border-pulse/40"}`}>
+        <div className={`rounded-sm border px-4 py-3 ${
+          approved ? "border-current/40" : "border-pulse/40"
+        }`}>
           <div className={`flex items-center gap-2 ${approved ? "text-current" : "text-pulse"}`}>
             {approved
               ? <CheckCircle2 className="h-4 w-4 shrink-0" />
               : <XCircle className="h-4 w-4 shrink-0" />}
             <p className="font-mono text-[12px] uppercase tracking-[0.1em]">
               {approved ? "Merged into canon" : "Rejected"}
-              {verdict.composite_score > 0 && ` · score ${verdict.composite_score}/100`}
+              {verdict.composite_score > 0 && ` · ${verdict.composite_score}/100`}
             </p>
           </div>
           {verdict.plagiarism_risk === "high" && (
             <p className="mt-1 font-mono text-[11px] text-pulse">⚠ Plagiarism risk flagged</p>
           )}
           {verdict.rationale && (
-            <p className="mt-2 font-body text-[13px] text-muted leading-snug">{verdict.rationale}</p>
+            <p className="mt-2 font-body text-[13px] text-muted leading-snug">
+              {verdict.rationale}
+            </p>
           )}
         </div>
         <button onClick={onResolved}
@@ -193,7 +195,8 @@ export function EvaluateProposalButton({
   return (
     <div className="space-y-1">
       <Button variant="secondary" onClick={handleEvaluate} className="gap-2">
-        <Gavel className="h-3.5 w-3.5" />Convene the jury
+        <Gavel className="h-3.5 w-3.5" />
+        Convene the jury
       </Button>
       {state === "error" && error && (
         <p className="font-mono text-[12px] text-pulse">{error}</p>
