@@ -11,7 +11,11 @@ import { MintElementModal } from "./MintElementModal";
 import { TrackHistory } from "./TrackHistory";
 import { AudioPlayer } from "./AudioPlayer";
 
-interface SessionProposal { id: string; type: string; }
+interface SessionProposal {
+  id: string;
+  type: string;
+  versionAtSubmit: number;
+}
 
 export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () => void }) {
   const { getTrack } = useHarmonyForge();
@@ -21,11 +25,27 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<"content" | "history">("content");
 
-  async function refresh() { setTrack(await getTrack(trackId)); }
-  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [trackId]);
+  async function refresh() {
+    const t = await getTrack(trackId);
+    setTrack(t);
+  }
+
+  useEffect(() => {
+    refresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackId]);
 
   function onProposed(proposalId: string, type: string) {
-    setSessionProposals((p) => [...p, { id: proposalId, type }]);
+    setSessionProposals((p) => [...p, {
+      id: proposalId,
+      type,
+      versionAtSubmit: track?.version ?? 0,
+    }]);
+  }
+
+  function onVerdictReceived(updatedTrack?: Track) {
+    if (updatedTrack) setTrack(updatedTrack);
+    else refresh();
   }
 
   function handleShare() {
@@ -42,8 +62,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
       <div className="flex items-center justify-between">
         <button onClick={onBack}
           className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.12em] text-muted hover:text-ink transition-colors">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to the deck
+          <ArrowLeft className="h-3.5 w-3.5" />Back to the deck
         </button>
         <button onClick={handleShare}
           className="flex items-center gap-1.5 font-mono text-[11px] text-muted hover:text-ink transition-colors">
@@ -72,7 +91,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
             <div className="flex gap-1 border-b border-line pb-0">
               {(["content", "history"] as const).map((t) => (
                 <button key={t} onClick={() => setTab(t)}
-                  className={`pb-2 px-1 font-mono text-[11px] uppercase tracking-[0.1em] border-b-2 transition-colors -mb-px ${
+                  className={`-mb-px border-b-2 px-1 pb-2 font-mono text-[11px] uppercase tracking-[0.1em] transition-colors ${
                     tab === t ? "border-pulse text-pulse" : "border-transparent text-muted hover:text-ink"
                   }`}>
                   {t}
@@ -88,14 +107,14 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
             <AudioPlayer trackId={track.id} version={track.version} />
 
             <Button variant="vinyl" onClick={() => setMintOpen(true)} className="gap-2">
-              <Stamp className="h-3.5 w-3.5" />
-              Mint v{track.version}
+              <Stamp className="h-3.5 w-3.5" />Mint v{track.version}
             </Button>
           </div>
         </div>
 
         <div className="space-y-6">
           <ProposeEvolutionForm trackId={track.id} onProposed={onProposed} />
+
           <div className="rounded-md border border-line bg-panel/70 p-5">
             <div className="mb-4 flex items-center gap-2.5">
               <ListMusic className="h-4 w-4 text-vinyl" />
@@ -104,16 +123,21 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
               </h4>
             </div>
             {sessionProposals.length === 0
-              ? <p className="font-body text-sm text-muted">Propose an evolution above — its on-chain ID appears here.</p>
+              ? <p className="font-body text-sm text-muted">Propose an evolution above — its ID appears here for jury evaluation.</p>
               : (
-                <ul className="space-y-3">
+                <ul className="space-y-4">
                   {sessionProposals.map((p) => (
-                    <li key={p.id} className="flex flex-col gap-2 rounded-sm border border-line/60 px-3 py-2.5">
+                    <li key={p.id} className="space-y-2 rounded-sm border border-line/60 px-3 py-3">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-[12px] uppercase tracking-[0.08em] text-muted">{p.type}</span>
                         <span className="led text-[10px] text-muted/60">#{p.id}</span>
                       </div>
-                      <EvaluateProposalButton proposalId={p.id} onResolved={refresh} />
+                      <EvaluateProposalButton
+                        proposalId={p.id}
+                        trackId={track.id}
+                        initialVersion={p.versionAtSubmit}
+                        onResolved={onVerdictReceived}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -122,6 +146,7 @@ export function TrackDetail({ trackId, onBack }: { trackId: string; onBack: () =
           </div>
         </div>
       </div>
+
       <MintElementModal trackId={track.id} open={mintOpen} onClose={() => setMintOpen(false)} />
     </div>
   );
