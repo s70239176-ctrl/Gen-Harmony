@@ -25,7 +25,7 @@ export const wagmiConfig = createConfig({
 });
 
 export const CONTRACT_ADDRESS =
-  "0xd1EB423B94c15936AFF219ADB0a58a17aa71b5a2" as const;
+  "0x7D99787F5e70faF2308d5a43E574460A7EB9289d" as const;
 
 const GL_KEY = "genharmony_contributor_pk";
 

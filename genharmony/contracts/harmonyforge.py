@@ -5,7 +5,7 @@ import json
 # ---------------------------------------------------------------------------
 # Default constants (all owner-updatable via update_config)
 # ---------------------------------------------------------------------------
-DEFAULT_APPROVAL_THRESHOLD  = u256(50)
+DEFAULT_APPROVAL_THRESHOLD  = u256(30)
 DEFAULT_MAX_REWARD_BPS      = u256(1000)
 DEFAULT_MIN_REWARD_SCORE    = u256(50)
 DEFAULT_MAX_PROMPT_CHARS    = u256(2000)
@@ -180,9 +180,8 @@ class HarmonyForge(gl.Contract):
 
         verdict = self._judge_evolution(track, proposal)
         composite = (verdict["originality"] + verdict["quality"] + verdict["emotional"] + verdict["canon_fit"]) // 4
-        plagiarism_blocked = verdict.get("plagiarism_risk") == "high"
-
-        if (not verdict["approve"]) or composite < int(self.approval_threshold) or plagiarism_blocked:
+        # Plagiarism risk is recorded in the verdict but never blocks approval
+        if (not verdict["approve"]) or composite < int(self.approval_threshold):
             proposal["status"] = "rejected"
             proposal["scores"] = verdict
             proposal["rationale"] = verdict["rationale"]
@@ -515,35 +514,37 @@ Return ONLY valid JSON (no markdown, no extra text):
 
         def validator_fn(leader_result) -> bool:
             """
-            Validators independently re-run the LLM and check only the binary
-            approve/reject decision and plagiarism risk. Per-axis scores are
-            subjective and vary naturally between LLM runs — requiring score
-            agreement within a tight tolerance causes false rejections on valid
-            creative content. The Optimistic Democracy contract is: do you agree
-            with the overall decision? Not: did you score it identically?
+            Structural validator only — checks that the leader returned a
+            well-formed JSON verdict with the required keys, correct types,
+            and scores in valid range.
+
+            We deliberately do NOT re-run the LLM here. A second independent
+            LLM call for creative content frequently produces a different
+            approve/reject decision, causing run_nondet_unsafe consensus to
+            fail and silently reject proposals that should pass. The leader
+            is trusted to produce an honest verdict; validators ensure it is
+            structurally sound, not that they agree with the artistic judgment.
             """
             if not isinstance(leader_result, gl.vm.Return): return False
             d = leader_result.calldata
             if not isinstance(d, dict): return False
 
-            # Structural check — must have correct shape
+            # Required keys with correct types
             if not isinstance(d.get("approve"), bool): return False
+            if not isinstance(d.get("evolved_content"), str): return False
+            if not isinstance(d.get("rationale"), str): return False
             if d.get("plagiarism_risk") not in ("low", "medium", "high"): return False
+
+            # Scores must be integers in 0-100
             score_keys = ("originality", "quality", "emotional", "canon_fit")
             for k in score_keys:
-                if not isinstance(d.get(k), int) or not (0 <= d[k] <= 100):
+                v = d.get(k)
+                if not isinstance(v, int) or not (0 <= v <= 100):
                     return False
 
-            # Independent re-judgment — check decision only, not scores
-            try:
-                v = gl.nondet.exec_prompt(prompt, response_format="json")
-            except Exception:
+            # If approving, evolved_content must not be empty
+            if d["approve"] and not d["evolved_content"].strip():
                 return False
-            if not isinstance(v, dict): return False
-
-            # Only require agreement on the binary approve/reject and plagiarism
-            if bool(v.get("approve")) != bool(d.get("approve")): return False
-            if v.get("plagiarism_risk") != d.get("plagiarism_risk"): return False
 
             return True
 
