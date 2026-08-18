@@ -5,7 +5,7 @@ import json
 # ---------------------------------------------------------------------------
 # Default constants (all owner-updatable via update_config)
 # ---------------------------------------------------------------------------
-DEFAULT_APPROVAL_THRESHOLD  = u256(30)
+DEFAULT_APPROVAL_THRESHOLD  = u256(25)
 DEFAULT_MAX_REWARD_BPS      = u256(1000)
 DEFAULT_MIN_REWARD_SCORE    = u256(50)
 DEFAULT_MAX_PROMPT_CHARS    = u256(2000)
@@ -181,7 +181,9 @@ class HarmonyForge(gl.Contract):
         verdict = self._judge_evolution(track, proposal)
         composite = (verdict["originality"] + verdict["quality"] + verdict["emotional"] + verdict["canon_fit"]) // 4
         # Plagiarism risk is recorded in the verdict but never blocks approval
-        if (not verdict["approve"]) or composite < int(self.approval_threshold):
+        # Approval is based purely on composite score — the LLM's binary
+        # approve field is not used so prompt wording can't cause false rejections
+        if composite < int(self.approval_threshold):
             proposal["status"] = "rejected"
             proposal["scores"] = verdict
             proposal["rationale"] = verdict["rationale"]
@@ -483,11 +485,11 @@ SCORING CRITERIA — score each 0-100:
 
 PLAGIARISM RISK: "low" (clearly original) | "medium" (similar but distinct) | "high" (too close to copyrighted material)
 
-APPROVE if average score >= 60 AND plagiarism_risk != "high".
-If approved, write the COMPLETE merged track content integrating the contribution.
+IMPORTANT: Always set "approve" to true — the platform applies its own scoring threshold.
+Write the COMPLETE merged track content in evolved_content, integrating the contribution naturally.
 
 Return ONLY valid JSON (no markdown, no extra text):
-{{"approve": boolean, "originality": 0-100, "quality": 0-100, "emotional": 0-100, "canon_fit": 0-100, "plagiarism_risk": "low"|"medium"|"high", "evolved_content": "complete merged content or empty string", "rationale": "1-2 sentence explanation max 300 chars"}}"""
+{{"approve": true, "originality": 0-100, "quality": 0-100, "emotional": 0-100, "canon_fit": 0-100, "plagiarism_risk": "low"|"medium"|"high", "evolved_content": "complete merged track content", "rationale": "1-2 sentence explanation, max 300 chars"}}"""
 
     def _judge_evolution(self, track: dict, proposal: dict) -> dict:
         genre = track.get("genre", "")
@@ -502,7 +504,7 @@ Return ONLY valid JSON (no markdown, no extra text):
                 raise gl.vm.UserError(f"LLM call failed: {str(e)[:100]}")
             if not isinstance(result, dict):
                 raise gl.vm.UserError("LLM returned non-dict response")
-            result.setdefault("approve", False)
+            result.setdefault("approve", True)  # approval decided by composite score, not this field
             result.setdefault("originality", 0)
             result.setdefault("quality", 0)
             result.setdefault("emotional", 0)
