@@ -5,7 +5,7 @@ import json
 # ---------------------------------------------------------------------------
 # Default constants (all owner-updatable via update_config)
 # ---------------------------------------------------------------------------
-DEFAULT_APPROVAL_THRESHOLD  = u256(60)
+DEFAULT_APPROVAL_THRESHOLD  = u256(50)
 DEFAULT_MAX_REWARD_BPS      = u256(1000)
 DEFAULT_MIN_REWARD_SCORE    = u256(50)
 DEFAULT_MAX_PROMPT_CHARS    = u256(2000)
@@ -514,25 +514,37 @@ Return ONLY valid JSON (no markdown, no extra text):
             return result
 
         def validator_fn(leader_result) -> bool:
+            """
+            Validators independently re-run the LLM and check only the binary
+            approve/reject decision and plagiarism risk. Per-axis scores are
+            subjective and vary naturally between LLM runs — requiring score
+            agreement within a tight tolerance causes false rejections on valid
+            creative content. The Optimistic Democracy contract is: do you agree
+            with the overall decision? Not: did you score it identically?
+            """
             if not isinstance(leader_result, gl.vm.Return): return False
             d = leader_result.calldata
             if not isinstance(d, dict): return False
-            score_keys = ("originality", "quality", "emotional", "canon_fit")
+
+            # Structural check — must have correct shape
             if not isinstance(d.get("approve"), bool): return False
-            if d.get("plagiarism_risk") not in ("low","medium","high"): return False
+            if d.get("plagiarism_risk") not in ("low", "medium", "high"): return False
+            score_keys = ("originality", "quality", "emotional", "canon_fit")
             for k in score_keys:
-                if not isinstance(d.get(k), int) or not (0 <= d[k] <= 100): return False
+                if not isinstance(d.get(k), int) or not (0 <= d[k] <= 100):
+                    return False
+
+            # Independent re-judgment — check decision only, not scores
             try:
                 v = gl.nondet.exec_prompt(prompt, response_format="json")
             except Exception:
                 return False
             if not isinstance(v, dict): return False
+
+            # Only require agreement on the binary approve/reject and plagiarism
             if bool(v.get("approve")) != bool(d.get("approve")): return False
             if v.get("plagiarism_risk") != d.get("plagiarism_risk"): return False
-            for k in score_keys:
-                vv, lv = v.get(k), d.get(k)
-                if not isinstance(vv, int) or not isinstance(lv, int): return False
-                if abs(vv - lv) > SCORE_TOLERANCE: return False
+
             return True
 
         return gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
