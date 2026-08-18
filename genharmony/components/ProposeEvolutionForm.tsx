@@ -4,9 +4,37 @@ import { useState } from "react";
 import { GitBranch } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Textarea } from "./ui/Field";
-import { useHarmonyForge, findProposalId } from "@/lib/genlayer";
+import { useHarmonyForge } from "@/lib/genlayer";
+import { CONTRACT_ADDRESS } from "@/lib/genlayer";
 
 const TYPES = ["harmony", "remix", "lyric", "melody", "structure"] as const;
+const RPC_URL = "https://studio.genlayer.com:8443/api";
+
+async function findPendingProposalForTrack(trackId: string): Promise<string | null> {
+  // Scan proposals 0-29, find one that is pending for this track
+  for (let i = 29; i >= 0; i--) {
+    try {
+      const res = await fetch(RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: i + 100,
+          method: "gen_call",
+          params: [{ to: CONTRACT_ADDRESS, function: "get_proposal", args: [String(i)] }]
+        }),
+      });
+      const json = await res.json();
+      if (json.error) continue;
+      const proposal = typeof json.result === "string"
+        ? JSON.parse(json.result)
+        : json.result;
+      if (proposal?.track_id === trackId && proposal?.status === "pending") {
+        return String(i);
+      }
+    } catch { continue; }
+  }
+  return null;
+}
 
 export function ProposeEvolutionForm({
   trackId,
@@ -15,51 +43,39 @@ export function ProposeEvolutionForm({
   trackId: string;
   onProposed?: (proposalId: string, type: string) => void;
 }) {
-  const { proposeEvolution, getEvents } = useHarmonyForge();
+  const { proposeEvolution } = useHarmonyForge();
   const [type, setType] = useState<(typeof TYPES)[number]>("harmony");
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      // Snapshot event count before write so we can scan forward after
-      let eventCountBefore = 0;
-      try {
-        const events = await getEvents(0, 100);
-        eventCountBefore = Array.isArray(events) ? events.length : 0;
-      } catch { /* best effort */ }
+      await proposeEvolution(trackId, text, type);
 
-      const rawId = await proposeEvolution(trackId, text, type);
+      // Scan directly for the pending proposal on this track
+      setSubmitting(false);
+      setResolving(true);
 
-      // If rawId is a clean integer string — it's the real proposal ID
-      if (/^\d+$/.test(String(rawId))) {
-        setText("");
-        onProposed?.(String(rawId), type);
-        return;
-      }
+      const realId = await findPendingProposalForTrack(trackId);
 
-      // Otherwise (tx hash returned) — scan events to find real ID
-      const realId = await findProposalId(trackId, "", eventCountBefore);
       if (realId !== null) {
         setText("");
         onProposed?.(realId, type);
-        return;
+      } else {
+        setError("Proposal submitted but ID could not be resolved — check Studio and enter the ID manually.");
       }
-
-      // Last resort: use rawId and warn
-      console.warn("Could not resolve proposal ID, using raw:", rawId);
-      setText("");
-      onProposed?.(String(rawId), type);
     } catch (err) {
       const msg = err instanceof Error ? err.message
         : typeof err === "object" ? JSON.stringify(err) : String(err);
       setError(msg);
     } finally {
       setSubmitting(false);
+      setResolving(false);
     }
   }
 
@@ -87,9 +103,15 @@ export function ProposeEvolutionForm({
         onChange={(e) => setText(e.target.value)} required
         placeholder="Add a half-time breakdown that strips to a single arpeggiated synth..." />
 
+      {resolving && (
+        <p className="mt-3 font-mono text-[11px] text-muted animate-pulse">
+          Resolving proposal ID…
+        </p>
+      )}
       {error && <p className="mt-3 font-mono text-[12px] text-pulse">{error}</p>}
 
-      <Button type="submit" variant="secondary" loading={submitting} className="mt-4 w-full">
+      <Button type="submit" variant="secondary"
+        loading={submitting || resolving} className="mt-4 w-full">
         Submit proposal
       </Button>
     </form>
