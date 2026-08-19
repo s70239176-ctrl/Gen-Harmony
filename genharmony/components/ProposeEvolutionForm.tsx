@@ -4,36 +4,36 @@ import { useState } from "react";
 import { GitBranch } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Textarea } from "./ui/Field";
-import { useHarmonyForge } from "@/lib/genlayer";
-import { CONTRACT_ADDRESS } from "@/lib/genlayer";
+import { useHarmonyForge, CONTRACT_ADDRESS } from "@/lib/genlayer";
 
 const TYPES = ["harmony", "remix", "lyric", "melody", "structure"] as const;
-const RPC_URL = "https://studio.genlayer.com:8443/api";
+const RPC = "https://studio.genlayer.com:8443/api";
 
-async function findPendingProposalForTrack(trackId: string): Promise<string | null> {
-  // Scan proposals 0-29, find one that is pending for this track
-  for (let i = 29; i >= 0; i--) {
+async function rpcCall(method: string, args: unknown[]) {
+  const res = await fetch(RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: Date.now(),
+      method: "gen_call",
+      params: [{ to: CONTRACT_ADDRESS, function: method, args }],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message ?? "RPC error");
+  return json.result;
+}
+
+async function getNextProposalId(): Promise<string> {
+  // Probe sequentially until we hit a missing proposal — that index is next
+  for (let i = 0; i < 200; i++) {
     try {
-      const res = await fetch(RPC_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0", id: i + 100,
-          method: "gen_call",
-          params: [{ to: CONTRACT_ADDRESS, function: "get_proposal", args: [String(i)] }]
-        }),
-      });
-      const json = await res.json();
-      if (json.error) continue;
-      const proposal = typeof json.result === "string"
-        ? JSON.parse(json.result)
-        : json.result;
-      if (proposal?.track_id === trackId && proposal?.status === "pending") {
-        return String(i);
-      }
-    } catch { continue; }
+      await rpcCall("get_proposal", [String(i)]);
+    } catch {
+      return String(i);
+    }
   }
-  return null;
+  return "0";
 }
 
 export function ProposeEvolutionForm({
@@ -48,34 +48,31 @@ export function ProposeEvolutionForm({
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resolving, setResolving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setStatus(null);
     setSubmitting(true);
     try {
+      // Read next proposal ID BEFORE submitting — always current + 1
+      setStatus("Reading current proposal count…");
+      const nextId = await getNextProposalId();
+
+      setStatus("Submitting proposal…");
       await proposeEvolution(trackId, text, type);
 
-      // Scan directly for the pending proposal on this track
-      setSubmitting(false);
-      setResolving(true);
-
-      const realId = await findPendingProposalForTrack(trackId);
-
-      if (realId !== null) {
-        setText("");
-        onProposed?.(realId, type);
-      } else {
-        setError("Proposal submitted but ID could not be resolved — check Studio and enter the ID manually.");
-      }
+      setText("");
+      setStatus(null);
+      onProposed?.(nextId, type);
     } catch (err) {
       const msg = err instanceof Error ? err.message
         : typeof err === "object" ? JSON.stringify(err) : String(err);
       setError(msg);
+      setStatus(null);
     } finally {
       setSubmitting(false);
-      setResolving(false);
     }
   }
 
@@ -103,15 +100,12 @@ export function ProposeEvolutionForm({
         onChange={(e) => setText(e.target.value)} required
         placeholder="Add a half-time breakdown that strips to a single arpeggiated synth..." />
 
-      {resolving && (
-        <p className="mt-3 font-mono text-[11px] text-muted animate-pulse">
-          Resolving proposal ID…
-        </p>
+      {status && (
+        <p className="mt-3 font-mono text-[11px] text-muted">{status}</p>
       )}
       {error && <p className="mt-3 font-mono text-[12px] text-pulse">{error}</p>}
 
-      <Button type="submit" variant="secondary"
-        loading={submitting || resolving} className="mt-4 w-full">
+      <Button type="submit" variant="secondary" loading={submitting} className="mt-4 w-full">
         Submit proposal
       </Button>
     </form>
