@@ -25,13 +25,13 @@ export const wagmiConfig = createConfig({
 });
 
 export const CONTRACT_ADDRESS =
-  "0x4F70083C2441EBa28D86694FF5C4d405e5644002" as const;
+  "0x808B4C20b9FDE1cc9f96Bd0a6A421fb8D1F9b50B" as const;
 
 const GL_KEY = "genharmony_contributor_pk";
 
 function getOrCreateContributorKey(): `0x${string}` {
   if (typeof window === "undefined")
-    return "0x0000000000000000000000000000000000000000000000000000000000000001";
+    return "0x808B4C20b9FDE1cc9f96Bd0a6A421fb8D1F9b50B000000000000000000000001";
   let pk = localStorage.getItem(GL_KEY) as `0x${string}` | null;
   if (!pk) { pk = generatePrivateKey(); localStorage.setItem(GL_KEY, pk); }
   return pk;
@@ -123,6 +123,8 @@ export function useHarmonyForge() {
     getContributionCount: (addr: string) =>
       read<unknown>("get_contribution_count", [addr]).then(String),
     getMyMintedElements: () => read<string[]>("get_my_minted_elements", []),
+    getNextProposalId: () =>
+      read<unknown>("get_next_proposal_id", []).then((v) => String(v)),
     getMintedElement: (elementId: string) => read<MintedElement>("get_minted_element", [elementId]),
     getEvents: (fromId: number, limit: number) =>
       read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),

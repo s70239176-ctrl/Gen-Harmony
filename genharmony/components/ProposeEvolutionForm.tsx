@@ -4,35 +4,9 @@ import { useState } from "react";
 import { GitBranch } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Textarea } from "./ui/Field";
-import { useHarmonyForge, CONTRACT_ADDRESS } from "@/lib/genlayer";
+import { useHarmonyForge } from "@/lib/genlayer";
 
 const TYPES = ["harmony", "remix", "lyric", "melody", "structure"] as const;
-
-async function proxyCall(method: string, args: unknown[]) {
-  const res = await fetch("/api/gl", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: Date.now(),
-      method: "gen_call",
-      params: [{ to: CONTRACT_ADDRESS, function: method, args }],
-    }),
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message ?? "RPC error");
-  return typeof json.result === "string" ? JSON.parse(json.result) : json.result;
-}
-
-async function getNextProposalId(): Promise<string> {
-  for (let i = 0; i < 100; i++) {
-    try {
-      await proxyCall("get_proposal", [String(i)]);
-    } catch {
-      return String(i);
-    }
-  }
-  return "0";
-}
 
 export function ProposeEvolutionForm({
   trackId,
@@ -41,7 +15,7 @@ export function ProposeEvolutionForm({
   trackId: string;
   onProposed?: (proposalId: string, type: string) => void;
 }) {
-  const { proposeEvolution } = useHarmonyForge();
+  const { proposeEvolution, getNextProposalId } = useHarmonyForge();
   const [type, setType] = useState<(typeof TYPES)[number]>("harmony");
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
