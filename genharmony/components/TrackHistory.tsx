@@ -20,36 +20,63 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 }
 
 export function TrackHistory({ trackId, version }: { trackId: string; version: number }) {
-  const { getTrackHistory, getTrack } = useHarmonyForge();
+  const { getTrack, getProposal, getNextProposalId } = useHarmonyForge();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+
     async function load() {
+      setLoading(true);
       try {
-        const h = await getTrackHistory(trackId);
-        if (Array.isArray(h) && h.length > 0) {
-          setHistory(h);
-          return;
-        }
-        // Fallback for old-contract tracks without stored history
         const track = await getTrack(trackId);
-        const fallback: HistoryEntry[] = [
-          { version: 0, contributor: track.creator, proposal_id: null, rationale: "Genesis seed", scores: null },
-        ];
-        for (let v = 1; v <= track.version; v++) {
-          fallback.push({ version: v, contributor: "contributor", proposal_id: null, rationale: "Evolution merged", scores: null });
+
+        const genesis: HistoryEntry = {
+          version: 0,
+          contributor: track.creator,
+          proposal_id: null,
+          rationale: "Genesis seed",
+          scores: null,
+        };
+
+        const nextId = Number(await getNextProposalId());
+        const approvedForTrack: HistoryEntry[] = [];
+
+        for (let i = 0; i < nextId; i++) {
+          try {
+            const p = await getProposal(String(i));
+            if (p.track_id === trackId && p.status === "approved") {
+              approvedForTrack.push({
+                version: approvedForTrack.length + 1,
+                contributor: p.proposer,
+                proposal_id: p.id,
+                rationale: p.rationale,
+                scores: p.scores
+                  ? {
+                      originality: p.scores.originality,
+                      quality: p.scores.quality,
+                      emotional: p.scores.emotional,
+                      canon_fit: p.scores.canon_fit,
+                    }
+                  : null,
+              });
+            }
+          } catch {
+            // skip unreadable proposal ids
+          }
         }
-        setHistory(fallback);
+
+        if (!cancelled) setHistory([genesis, ...approvedForTrack]);
       } catch {
-        setHistory([]);
+        if (!cancelled) setHistory([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
+
     load();
-  // Re-fetch whenever version changes so new history entries appear immediately after approval
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId, version]);
 
@@ -86,19 +113,13 @@ export function TrackHistory({ trackId, version }: { trackId: string; version: n
               {entry.rationale}
             </p>
           )}
-          {entry.scores ? (
+          {entry.scores && (
             <div className="mt-2 space-y-1 rounded-sm border border-line/40 bg-rail/40 p-3">
               <ScoreBar label="Originality" value={entry.scores.originality} />
               <ScoreBar label="Quality"     value={entry.scores.quality} />
               <ScoreBar label="Emotional"   value={entry.scores.emotional} />
               <ScoreBar label="Canon fit"   value={entry.scores.canon_fit} />
             </div>
-          ) : (
-            entry.version > 0 && (
-              <p className="font-mono text-[10px] text-muted/60 italic">
-                Score data recorded on new contract deployments
-              </p>
-            )
           )}
         </li>
       ))}
