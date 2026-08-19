@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Gavel, CheckCircle2, XCircle, Clock, RefreshCw, Hourglass } from "lucide-react";
 import { Button } from "./ui/Button";
 import { VuMeter } from "./VuMeter";
-import { useHarmonyForge } from "@/lib/genlayer";
+import { useHarmonyForge, CONTRACT_ADDRESS } from "@/lib/genlayer";
 import type { Track } from "@/lib/types";
 
 type State = "idle" | "judging" | "polling" | "done" | "timeout" | "error";
@@ -13,6 +13,38 @@ interface Verdict {
   status: "approved" | "rejected";
   composite_score: number;
   rationale: string | null;
+}
+
+const RPC = "https://studio.genlayer.com:8443/api";
+
+async function fetchProposalDirect(proposalId: string) {
+  const res = await fetch(RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: Date.now(),
+      method: "gen_call",
+      params: [{ to: CONTRACT_ADDRESS, function: "get_proposal", args: [proposalId] }],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) return null;
+  return typeof json.result === "string" ? JSON.parse(json.result) : json.result;
+}
+
+async function fetchTrackDirect(trackId: string) {
+  const res = await fetch(RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: Date.now(),
+      method: "gen_call",
+      params: [{ to: CONTRACT_ADDRESS, function: "get_track", args: [trackId] }],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) return null;
+  return typeof json.result === "string" ? JSON.parse(json.result) : json.result;
 }
 
 export function EvaluateProposalButton({
@@ -26,11 +58,12 @@ export function EvaluateProposalButton({
   initialVersion: number;
   onResolved?: (updatedTrack?: Track) => void;
 }) {
-  const { evaluateProposal, getTrack } = useHarmonyForge();
+  const { evaluateProposal } = useHarmonyForge();
   const [state, setState] = useState<State>("idle");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [pollStatus, setPollStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (state !== "judging" && state !== "polling") { setElapsed(0); return; }
@@ -38,21 +71,49 @@ export function EvaluateProposalButton({
     return () => clearInterval(t);
   }, [state]);
 
-  async function fetchTrackFresh(): Promise<Track> {
-    // Add a cache-busting nonce via an unused arg to force a fresh RPC call
-    return getTrack(trackId);
-  }
-
-  async function pollTrackForVerdict(maxAttempts = 60) {
+  async function poll(maxAttempts = 80) {
     setState("polling");
-    let lastVersion = initialVersion;
-
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 3000));
+
       try {
-        const track = await fetchTrackFresh();
-        if (track.version > lastVersion) {
-          // Version incremented = approved
+        // Check proposal status via direct RPC — bypasses genlayer-js cache
+        const proposal = await fetchProposalDirect(proposalId);
+        if (proposal && proposal.status !== "pending") {
+          if (proposal.status === "rejected") {
+            const s = proposal.scores;
+            const composite = s
+              ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
+              : 0;
+            setVerdict({
+              status: "rejected",
+              composite_score: composite,
+              rationale: proposal.rationale ?? "Score below the approval threshold.",
+            });
+            setState("done");
+            onResolved?.();
+            return;
+          }
+          if (proposal.status === "approved") {
+            const s = proposal.scores;
+            const composite = s
+              ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
+              : 0;
+            const track = await fetchTrackDirect(trackId);
+            setVerdict({
+              status: "approved",
+              composite_score: composite,
+              rationale: proposal.rationale ?? null,
+            });
+            setState("done");
+            onResolved?.(track ?? undefined);
+            return;
+          }
+        }
+
+        // Also check track version as a secondary signal
+        const track = await fetchTrackDirect(trackId);
+        if (track && track.version > initialVersion) {
           const history = track.history ?? [];
           const latest = history[history.length - 1];
           const s = latest?.scores;
@@ -68,25 +129,32 @@ export function EvaluateProposalButton({
           onResolved?.(track);
           return;
         }
-        lastVersion = track.version;
+
+        // Show live status
+        const statusMsg = proposal
+          ? `Proposal #${proposalId} is ${proposal.status} · ${elapsed}s`
+          : `Polling… ${elapsed}s`;
+        setPollStatus(statusMsg);
       } catch { /* keep polling */ }
     }
-    // Timed out — do NOT assume rejected. Let user decide.
     setState("timeout");
+    setPollStatus(null);
   }
 
   async function handleEvaluate() {
     setState("judging");
     setError(null);
+    setPollStatus(null);
     try {
       await evaluateProposal(proposalId);
-      await pollTrackForVerdict();
+      await poll();
     } catch (err) {
       const raw = err instanceof Error ? err.message
         : typeof err === "object" && err !== null ? JSON.stringify(err)
         : String(err);
       if (raw.includes("non-whitespace") || raw.includes("JSON at position")) {
-        await pollTrackForVerdict();
+        // Receipt decode noise — tx went through, poll for result
+        await poll();
       } else {
         setError(raw);
         setState("error");
@@ -94,33 +162,18 @@ export function EvaluateProposalButton({
     }
   }
 
-  async function checkNow() {
-    // Re-poll for another 2 minutes without assuming anything
-    await pollTrackForVerdict(40);
-  }
-
-  async function confirmRejected() {
-    // User explicitly confirms the proposal was rejected after checking Studio
-    setVerdict({
-      status: "rejected",
-      composite_score: 0,
-      rationale: "The jury did not approve this evolution — score below threshold or validators disagreed.",
-    });
-    setState("done");
-  }
-
   if (state === "judging" || state === "polling") return (
     <div className="space-y-2">
       <div className="flex items-center gap-3 rounded-sm border border-line bg-rail/60 px-4 py-2.5">
-        <VuMeter label={state === "judging" ? "Jury deliberating" : "Watching for canon update"} />
+        <VuMeter label={state === "judging" ? "Jury deliberating" : "Watching on-chain"} />
         <span className="ml-auto flex items-center gap-1 font-mono text-[11px] text-muted">
           <Clock className="h-3 w-3" />{elapsed}s
         </span>
       </div>
       <p className="font-mono text-[10px] text-muted">
-        {state === "judging"
+        {pollStatus ?? (state === "judging"
           ? "LLM consensus takes 30–90s — do not close this tab"
-          : `Polling track version every 3s — waiting for canon to update…`}
+          : "Polling proposal + track every 3s via direct RPC…")}
       </p>
     </div>
   );
@@ -129,21 +182,20 @@ export function EvaluateProposalButton({
     <div className="space-y-3">
       <div className="flex items-center gap-3 rounded-sm border border-vinyl/40 bg-rail/60 px-4 py-2.5">
         <Hourglass className="h-4 w-4 text-vinyl shrink-0" />
-        <p className="font-mono text-[12px] text-vinyl">
-          Track version unchanged after 3 minutes
-        </p>
+        <p className="font-mono text-[12px] text-vinyl">Still running after 4 minutes</p>
       </div>
       <p className="font-mono text-[10px] text-muted">
-        The proposal may have been rejected, or the jury is still running.
-        Check GenLayer Studio to confirm the proposal status.
+        Open browser console (F12) and check the network tab for gen_call responses to diagnose.
       </p>
       <div className="flex gap-2">
-        <Button variant="ghost" onClick={checkNow} className="gap-1.5 !px-3 !py-1.5">
-          <RefreshCw className="h-3.5 w-3.5" />Keep waiting
+        <Button variant="ghost" onClick={() => poll(30)} className="gap-1.5 !px-3 !py-1.5">
+          <RefreshCw className="h-3.5 w-3.5" />Keep polling
         </Button>
-        <Button variant="ghost" onClick={confirmRejected} className="gap-1.5 !px-3 !py-1.5 text-pulse border-pulse/30 hover:border-pulse/60">
-          <XCircle className="h-3.5 w-3.5" />Mark rejected
-        </Button>
+        <button
+          onClick={() => { setVerdict({ status: "rejected", composite_score: 0, rationale: "Manually marked — check Studio for actual status." }); setState("done"); }}
+          className="font-mono text-[11px] text-muted hover:text-pulse transition-colors">
+          Mark rejected
+        </button>
       </div>
     </div>
   );
@@ -157,7 +209,7 @@ export function EvaluateProposalButton({
             {approved ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
             <p className="font-mono text-[12px] uppercase tracking-[0.1em]">
               {approved ? "Merged into canon" : "Rejected"}
-              {approved && verdict.composite_score > 0 && ` · ${verdict.composite_score}/100`}
+              {verdict.composite_score > 0 && ` · ${verdict.composite_score}/100`}
             </p>
           </div>
           {verdict.rationale && (
