@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Gavel, CheckCircle2, XCircle, Clock, RefreshCw, Hourglass } from "lucide-react";
 import { Button } from "./ui/Button";
 import { VuMeter } from "./VuMeter";
-import { useHarmonyForge } from "@/lib/genlayer";
+import { useHarmonyForge, CONTRACT_ADDRESS } from "@/lib/genlayer";
 import type { Track } from "@/lib/types";
 
 type State = "idle" | "judging" | "polling" | "done" | "timeout" | "error";
@@ -13,6 +13,21 @@ interface Verdict {
   status: "approved" | "rejected";
   composite_score: number;
   rationale: string | null;
+}
+
+async function proxyCall(method: string, args: unknown[]) {
+  const res = await fetch("/api/gl", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: Date.now(),
+      method: "gen_call",
+      params: [{ to: CONTRACT_ADDRESS, function: method, args }],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message ?? "RPC error");
+  return typeof json.result === "string" ? JSON.parse(json.result) : json.result;
 }
 
 export function EvaluateProposalButton({
@@ -26,7 +41,7 @@ export function EvaluateProposalButton({
   initialVersion: number;
   onResolved?: (updatedTrack?: Track) => void;
 }) {
-  const { evaluateProposal, getProposal, getTrack } = useHarmonyForge();
+  const { evaluateProposal } = useHarmonyForge();
   const [state, setState] = useState<State>("idle");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,23 +59,24 @@ export function EvaluateProposalButton({
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        // Check proposal status via genlayer-js (handles CORS correctly)
-        setPollLabel(`Checking proposal #${proposalId}…`);
-        const proposal = await getProposal(proposalId);
+        setPollLabel(`Checking proposal #${proposalId} via server proxy… ${elapsed}s`);
 
-        if (proposal.status === "approved") {
+        // Fresh uncached read via server proxy
+        const proposal = await proxyCall("get_proposal", [proposalId]);
+
+        if (proposal?.status === "approved") {
           const s = proposal.scores;
           const composite = s
             ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
             : 0;
-          const track = await getTrack(trackId).catch(() => null);
+          const track = await proxyCall("get_track", [trackId]).catch(() => null);
           setVerdict({ status: "approved", composite_score: composite, rationale: proposal.rationale });
           setState("done");
           onResolved?.(track ?? undefined);
           return;
         }
 
-        if (proposal.status === "rejected") {
+        if (proposal?.status === "rejected") {
           const s = proposal.scores;
           const composite = s
             ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
@@ -71,9 +87,8 @@ export function EvaluateProposalButton({
           return;
         }
 
-        // Still pending — also check track version as backup signal
-        setPollLabel(`Proposal pending · also checking track version…`);
-        const track = await getTrack(trackId).catch(() => null);
+        // Also check track version as backup
+        const track = await proxyCall("get_track", [trackId]).catch(() => null);
         if (track && track.version > initialVersion) {
           const history = track.history ?? [];
           const latest = history[history.length - 1];
@@ -87,8 +102,10 @@ export function EvaluateProposalButton({
           return;
         }
 
-        setPollLabel(`Still pending · ${elapsed}s elapsed`);
-      } catch { /* keep polling */ }
+        setPollLabel(`Proposal #${proposalId} still pending · ${elapsed}s elapsed`);
+      } catch (e) {
+        setPollLabel(`Polling… ${elapsed}s (${e instanceof Error ? e.message.slice(0, 40) : "retrying"})`);
+      }
     }
     setState("timeout");
     setPollLabel("");
@@ -99,6 +116,22 @@ export function EvaluateProposalButton({
     setError(null);
     setPollLabel("");
     try {
+      // Verify proposal exists and is pending before spending gas
+      const existing = await proxyCall("get_proposal", [proposalId]).catch(() => null);
+      if (existing && existing.status !== "pending") {
+        const s = existing.scores;
+        const composite = s
+          ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
+          : 0;
+        setVerdict({ status: existing.status, composite_score: composite, rationale: existing.rationale });
+        setState("done");
+        if (existing.status === "approved") {
+          const track = await proxyCall("get_track", [trackId]).catch(() => null);
+          onResolved?.(track ?? undefined);
+        }
+        return;
+      }
+
       await evaluateProposal(proposalId);
       await poll();
     } catch (err) {
@@ -125,7 +158,7 @@ export function EvaluateProposalButton({
       <p className="font-mono text-[10px] text-muted">
         {pollLabel || (state === "judging"
           ? "LLM consensus takes 30–90s — do not close this tab"
-          : "Polling via genlayer-js every 3s…")}
+          : "Polling via server proxy — fresh data, no cache…")}
       </p>
     </div>
   );
@@ -136,33 +169,12 @@ export function EvaluateProposalButton({
         <Hourglass className="h-4 w-4 text-vinyl shrink-0" />
         <p className="font-mono text-[12px] text-vinyl">Still running after 4 minutes</p>
       </div>
-      <p className="font-mono text-[10px] text-muted">
-        Check GenLayer Studio to see the proposal status, then come back and click below.
-      </p>
       <div className="flex gap-2 flex-wrap">
         <Button variant="ghost" onClick={() => poll(30)} className="gap-1.5 !px-3 !py-1.5">
           <RefreshCw className="h-3.5 w-3.5" />Keep polling
         </Button>
         <button
-          onClick={async () => {
-            try {
-              const proposal = await getProposal(proposalId);
-              if (proposal.status !== "pending") {
-                const s = proposal.scores;
-                const composite = s ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4) : 0;
-                setVerdict({ status: proposal.status as "approved"|"rejected", composite_score: composite, rationale: proposal.rationale });
-                setState("done");
-                if (proposal.status === "approved") onResolved?.();
-              } else {
-                await poll(20);
-              }
-            } catch { await poll(20); }
-          }}
-          className="font-mono text-[11px] text-current hover:underline transition-colors">
-          Check now
-        </button>
-        <button
-          onClick={() => { setVerdict({ status: "rejected", composite_score: 0, rationale: "Manually marked." }); setState("done"); }}
+          onClick={() => { setVerdict({ status: "rejected", composite_score: 0, rationale: "Timed out — check GenLayer Studio for the actual result." }); setState("done"); }}
           className="font-mono text-[11px] text-muted hover:text-pulse transition-colors">
           Mark rejected
         </button>
