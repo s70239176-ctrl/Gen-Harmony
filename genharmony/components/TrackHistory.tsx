@@ -62,14 +62,14 @@ export function TrackHistory({ trackId, version }: { trackId: string; version: n
                   : null,
               });
             }
-          } catch {
+          } catch (err) {
             // skip unreadable proposal ids
           }
         }
 
         if (!cancelled) setHistory([genesis, ...approvedForTrack]);
       } catch {
-        if (!cancelled) setHistory([]);
+        if (!cancelled) { setHistory([]); console.error("TrackHistory load failed:", err); }
       } finally {
         if (!cancelled) setLoading(false);
       }
