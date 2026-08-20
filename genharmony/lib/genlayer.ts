@@ -99,8 +99,6 @@ export function useHarmonyForge() {
       write("mint_element", [trackId, kind], valueWei).then(({ result }) => coerce<string>(result)),
     // reads
     getTrack: (trackId: string) => read<Track>("get_track", [trackId]),
-    getTrackHistory: (trackId: string) =>
-      read<unknown>("get_track_history", [trackId]).then((v) => coerce<HistoryEntry[]>(v)),
     getProposal: (proposalId: string) => read<Proposal>("get_proposal", [proposalId]),
     listActiveTracks: () => read<string[]>("list_active_tracks", []),
     getMyTracks: (address: string) =>
