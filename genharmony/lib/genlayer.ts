@@ -8,7 +8,7 @@ import { useCallback, useMemo } from "react";
 import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
-import type { Track, Proposal, MintedElement, HistoryEntry } from "./types";
+import type { Track, Proposal, MintedElement } from "./types";
 
 export const genLayerStudio = defineChain({
   id: 61_999,
