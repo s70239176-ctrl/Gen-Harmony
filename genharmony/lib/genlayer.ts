@@ -97,21 +97,14 @@ export function useHarmonyForge() {
       write("claim_rewards", []).then(({ txHash }) => txHash),
     mintElement: (trackId: string, kind: string, valueWei: bigint) =>
       write("mint_element", [trackId, kind], valueWei).then(({ result }) => coerce<string>(result)),
-    setAudioUrl: (trackId: string, audioUrl: string) =>
-      write("set_audio_url", [trackId, audioUrl]).then(({ txHash }) => txHash),
-    pause: () => write("pause", []).then(({ txHash }) => txHash),
-    unpause: () => write("unpause", []).then(({ txHash }) => txHash),
-    updateConfig: (key: string, value: bigint) =>
-      write("update_config", [key, value]).then(({ txHash }) => txHash),
-
     // reads
     getTrack: (trackId: string) => read<Track>("get_track", [trackId]),
     getTrackHistory: (trackId: string) =>
       read<unknown>("get_track_history", [trackId]).then((v) => coerce<HistoryEntry[]>(v)),
     getProposal: (proposalId: string) => read<Proposal>("get_proposal", [proposalId]),
     listActiveTracks: () => read<string[]>("list_active_tracks", []),
-    getMyTracks: () =>
-      read<unknown>("get_my_tracks", []).then((v) => coerce<string[]>(v)),
+    getMyTracks: (address: string) =>
+      read<unknown>("get_my_tracks", [address]).then((v) => coerce<string[]>(v)),
     getTracksByGenre: (genre: string) =>
       read<unknown>("get_tracks_by_genre", [genre]).then((v) => coerce<string[]>(v)),
     getTopTracks: (limit = 10) =>
@@ -126,10 +119,6 @@ export function useHarmonyForge() {
     getNextProposalId: () =>
       read<unknown>("get_next_proposal_id", []).then((v) => String(v)),
     getMintedElement: (elementId: string) => read<MintedElement>("get_minted_element", [elementId]),
-    getEvents: (fromId: number, limit: number) =>
-      read<unknown>("get_events", [String(fromId), String(limit)]).then((v) => coerce<ContractEvent[]>(v)),
-    getConfig: () =>
-      read<unknown>("get_config", []).then((v) => coerce<ContractConfig>(v)),
   }), [read, write]);
 }
 

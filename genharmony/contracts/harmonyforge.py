@@ -3,6 +3,10 @@ from genlayer import *
 import json
 
 APPROVAL_THRESHOLD = 55
+SCORE_TOLERANCE     = 25   # max allowed gap between leader's and a validator's
+                            # independently-judged COMPOSITE score (0-100 scale)
+MIN_SHARED_TERMS    = 3    # min significant terms evolved_content must share
+                            # with (track content + contribution) to be accepted
 MAX_REWARD_BPS    = u256(1000)
 BPS_DENOMINATOR   = u256(10000)
 MIN_REWARD_WEI    = u256(10_000_000_000_000_000)
@@ -109,8 +113,6 @@ class HarmonyForge(gl.Contract):
         composite = (verdict["originality"] + verdict["quality"] +
                      verdict["emotional"] + verdict["canon_fit"]) // 4
 
-        # Both signals matter: the jury's own approve decision AND the
-        # composite score threshold. Either one failing means reject.
         if (not verdict["approve"]) or composite < APPROVAL_THRESHOLD:
             proposal["status"]    = "rejected"
             proposal["scores"]    = verdict
@@ -231,6 +233,57 @@ class HarmonyForge(gl.Contract):
         return result
 
     @gl.public.view
+    def get_top_tracks(self, limit: str) -> DynArray[str]:
+        """Return active track ids ranked by version (most-evolved first)."""
+        entries = []
+        i = u256(0)
+        while i < self.next_track_id:
+            track_id = str(i)
+            raw = self.tracks.get(track_id, None)
+            if raw is not None:
+                t = json.loads(raw)
+                if t.get("status") == "active":
+                    entries.append((track_id, t.get("version", 0)))
+            i = i + u256(1)
+        entries.sort(key=lambda e: e[1], reverse=True)
+        try:
+            n = int(limit)
+        except Exception:
+            n = 10
+        return [e[0] for e in entries[:n]]
+
+    @gl.public.view
+    def get_my_tracks(self, address: str) -> DynArray[str]:
+        """Return active track ids created by the given address."""
+        result = []
+        i = u256(0)
+        while i < self.next_track_id:
+            track_id = str(i)
+            raw = self.tracks.get(track_id, None)
+            if raw is not None:
+                t = json.loads(raw)
+                if t.get("status") == "active" and t.get("creator") == address:
+                    result.append(track_id)
+            i = i + u256(1)
+        return result
+
+    @gl.public.view
+    def get_tracks_by_genre(self, genre: str) -> DynArray[str]:
+        """Return active track ids whose genre contains the given text (case-insensitive)."""
+        needle = genre.strip().lower()
+        result = []
+        i = u256(0)
+        while i < self.next_track_id:
+            track_id = str(i)
+            raw = self.tracks.get(track_id, None)
+            if raw is not None:
+                t = json.loads(raw)
+                if t.get("status") == "active" and needle in t.get("genre", "").lower():
+                    result.append(track_id)
+            i = i + u256(1)
+        return result
+
+    @gl.public.view
     def get_pending_rewards(self, address: str) -> u256:
         """Claimable GEN balance for the given address."""
         return self.pending_rewards.get(Address(address), u256(0))
@@ -255,7 +308,14 @@ class HarmonyForge(gl.Contract):
 
     @gl.public.view
     def get_my_minted_elements(self) -> DynArray[str]:
-        """Return the ids of all minted elements owned by the caller."""
+        """Return the ids of all minted elements owned by the caller.
+
+        NOTE: relies on gl.message.sender_address inside a view call, which
+        may not reliably reflect the actual contributor when called via a
+        read (no signer attached). Kept as-is for compatibility with the
+        existing deployed interface; consider migrating to an explicit
+        address parameter (matching get_my_tracks) in a future revision.
+        """
         caller = str(gl.message.sender_address)
         result = []
         i = u256(0)
@@ -317,6 +377,9 @@ WEB CONTEXT: {context}
 
 Score honestly. A generic, low-effort, or filler contribution should score low.
 A genuinely original, well-crafted contribution should score high.
+If you approve, evolved_content must be the CURRENT CANON CONTENT genuinely
+merged with the PROPOSED CONTRIBUTION — not a rewrite from scratch, and not
+unrelated text.
 
 Return ONLY a JSON object with keys:
 - "approve": boolean — your independent judgment on whether this should be merged
@@ -326,6 +389,27 @@ Return ONLY a JSON object with keys:
 - "canon_fit": integer 0-100
 - "evolved_content": string (merged content if you'd approve, else "")
 - "rationale": string (<= 280 chars)"""
+
+    def _shares_derivation(self, evolved_content: str, track_content: str, contribution_text: str) -> bool:
+        """
+        Deterministic, non-LLM sanity check that evolved_content actually
+        derives from the track's existing canon and the proposed contribution,
+        rather than being fabricated or unrelated text. Tolerant of paraphrase
+        and creative rewording — only checks for a minimum number of shared
+        significant (4+ letter) terms, not exact phrasing.
+        """
+        def significant_terms(s: str) -> set:
+            return {w.lower() for w in s.split() if len(w) >= 4}
+
+        evolved_terms = significant_terms(evolved_content)
+        if not evolved_terms:
+            return False
+
+        base_terms = significant_terms(track_content) | significant_terms(contribution_text)
+        if not base_terms:
+            return True  # nothing to compare against — don't false-fail
+
+        return len(evolved_terms & base_terms) >= MIN_SHARED_TERMS
 
     def _judge_evolution(self, track: dict, proposal: dict) -> dict:
         genre   = track.get("genre", "")
@@ -350,7 +434,7 @@ Return ONLY a JSON object with keys:
             if not isinstance(d, dict):
                 return False
 
-            # Structural check first — cheap, filters malformed responses.
+            # --- Structural checks ---
             score_keys = ("quality", "originality", "emotional", "canon_fit")
             if not isinstance(d.get("approve"), bool):
                 return False
@@ -360,21 +444,35 @@ Return ONLY a JSON object with keys:
             if not isinstance(d.get("evolved_content"), str) or not isinstance(d.get("rationale"), str):
                 return False
 
-            # Independent re-judgment: this validator forms its OWN verdict
-            # from the identical prompt, then checks only whether it agrees
-            # with the leader's approve/reject DECISION. Individual scores
-            # may differ — LLM scoring is inherently noisy across calls —
-            # but the binary call must match. This keeps the validator
-            # genuinely independent rather than a pure shape-check, while
-            # avoiding the score-tolerance brittleness that caused
-            # near-universal false rejections previously.
+            # --- Content integrity: guards what actually becomes canon ---
+            if d["approve"]:
+                evolved = d["evolved_content"].strip()
+                if not evolved:
+                    return False
+                if evolved == track["current_content"].strip():
+                    return False  # must actually change something
+                if not self._shares_derivation(evolved, track["current_content"], proposal["contribution_text"]):
+                    return False  # content must derive from real inputs, not be fabricated
+
+            # --- Independent re-judgment: decision + score integrity ---
             try:
                 own = gl.nondet.exec_prompt(prompt, response_format="json")
             except Exception:
                 return False
             if not isinstance(own, dict) or not isinstance(own.get("approve"), bool):
                 return False
+            for k in score_keys:
+                if not isinstance(own.get(k), int) or not (0 <= own[k] <= 100):
+                    return False
 
-            return own["approve"] == d["approve"]
+            if own["approve"] != d["approve"]:
+                return False
+
+            own_composite    = sum(own[k] for k in score_keys) / 4
+            leader_composite = sum(d[k] for k in score_keys) / 4
+            if abs(own_composite - leader_composite) > SCORE_TOLERANCE:
+                return False
+
+            return True
 
         return gl.vm.run_nondet_unsafe(leader_fn, validator_fn)

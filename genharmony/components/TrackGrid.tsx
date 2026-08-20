@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, TrendingUp, Layers, Filter } from "lucide-react";
-import { useHarmonyForge } from "@/lib/genlayer";
+import { useHarmonyForge, getContributorAddress } from "@/lib/genlayer";
 import type { Track } from "@/lib/types";
 import { TrackCard } from "./TrackCard";
 import { CreateSeedForm } from "./CreateSeedForm";
@@ -25,16 +25,14 @@ export function TrackGrid({ onOpen }: { onOpen: (id: string) => void }) {
       let ids: string[] = [];
 
       if (m === "top") {
-        try { ids = await getTopTracks(20); }
-        catch {
-          setModeError("Top tracks unavailable on this contract — showing all");
-          ids = await listActiveTracks();
-        }
+        ids = await getTopTracks(20);
       } else if (m === "mine") {
-        try { ids = await getMyTracks(); }
-        catch {
-          setModeError("Mine filter unavailable on this contract — showing all");
-          ids = await listActiveTracks();
+        const contributorAddress = getContributorAddress();
+        if (!contributorAddress) {
+          setModeError("No contributor identity yet — connect first");
+          ids = [];
+        } else {
+          ids = await getMyTracks(contributorAddress);
         }
       } else {
         ids = await listActiveTracks();
