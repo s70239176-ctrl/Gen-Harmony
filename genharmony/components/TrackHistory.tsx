@@ -69,7 +69,7 @@ export function TrackHistory({ trackId, version }: { trackId: string; version: n
 
         if (!cancelled) setHistory([genesis, ...approvedForTrack]);
       } catch (err) {
-        if (!cancelled) { setHistory([]); console.error("TrackHistory load failed:", err); }
+        if (!cancelled) setHistory([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
