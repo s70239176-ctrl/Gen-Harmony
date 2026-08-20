@@ -51,7 +51,7 @@ export function TrackHistory({ trackId, version }: { trackId: string; version: n
                 version: approvedForTrack.length + 1,
                 contributor: p.proposer,
                 proposal_id: p.id,
-                rationale: p.rationale,
+                rationale: p.rationale ?? "",
                 scores: p.scores
                   ? {
                       originality: p.scores.originality,
