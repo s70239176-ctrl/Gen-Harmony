@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { formatEther } from "viem";
 import { useAccount } from "wagmi";
 import { Coins, Gem, Sparkle } from "lucide-react";
-import { useHarmonyForge } from "@/lib/genlayer";
+import { useHarmonyForge, getContributorAddress } from "@/lib/genlayer";
 import { Button } from "./ui/Button";
 
 function StatCard({
@@ -39,10 +39,16 @@ export function RewardsPanel() {
 
   async function refresh() {
     if (!address) return;
+    // Rewards are credited on-chain to the GenLayer contributor address
+    // (the localStorage-generated signing key), NOT the connected wagmi/
+    // MetaMask address — those are two different addresses. Query with
+    // the contributor address or this will always show 0.
+    const contributorAddress = getContributorAddress();
+    if (!contributorAddress) return;
     const [p, t, c] = await Promise.all([
-      getPendingRewards(address),
+      getPendingRewards(contributorAddress),
       getTreasuryBalance(),
-      getContributionCount(address),
+      getContributionCount(contributorAddress),
     ]);
     setPending(BigInt(p));
     setTreasury(BigInt(t));
