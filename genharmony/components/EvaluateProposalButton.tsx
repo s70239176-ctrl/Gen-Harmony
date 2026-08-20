@@ -51,7 +51,7 @@ export function EvaluateProposalButton({
     };
   }
 
-  async function poll(maxAttempts = 40) {
+  async function poll(maxAttempts = 100) {
     setState("polling");
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 3000));
@@ -132,9 +132,15 @@ export function EvaluateProposalButton({
     <div className="space-y-3">
       <div className="flex items-center gap-3 rounded-sm border border-vinyl/40 bg-rail/60 px-4 py-2.5">
         <Hourglass className="h-4 w-4 text-vinyl shrink-0" />
-        <p className="font-mono text-[12px] text-vinyl">Still deliberating after 2 minutes</p>
+        <p className="font-mono text-[12px] text-vinyl">Still deliberating after 5 minutes</p>
       </div>
-      <Button variant="ghost" onClick={() => poll(20)} className="gap-1.5 !px-3 !py-1.5">
+      <p className="font-mono text-[10px] text-muted">
+        The jury is still running on-chain even though this tab stopped watching —
+        it is NOT rejected. Check the History tab for this track at any time; it
+        will show the real result as soon as consensus finishes, even if you
+        navigate away or close this card.
+      </p>
+      <Button variant="ghost" onClick={() => poll(60)} className="gap-1.5 !px-3 !py-1.5">
         <RefreshCw className="h-3.5 w-3.5" />Keep polling
       </Button>
     </div>
