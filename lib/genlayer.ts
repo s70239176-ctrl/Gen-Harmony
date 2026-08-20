@@ -25,13 +25,13 @@ export const wagmiConfig = createConfig({
 });
 
 export const CONTRACT_ADDRESS =
-  "0x5a284C186D6A858a63576340Fea352d0Bf5021Eb" as const;
+  "0xbd264dc957B29745240c2F34F8c5a18E765d8E35" as const;
 
 const GL_KEY = "genharmony_contributor_pk";
 
 function getOrCreateContributorKey(): `0x${string}` {
   if (typeof window === "undefined")
-    return "0x0000000000000000000000000000000000000000000000000000000000000001";
+    return "0xbd264dc957B29745240c2F34F8c5a18E765d8E35000000000000000000000001";
   let pk = localStorage.getItem(GL_KEY) as `0x${string}` | null;
   if (!pk) { pk = generatePrivateKey(); localStorage.setItem(GL_KEY, pk); }
   return pk;

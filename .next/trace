@@ -1,3 +1,0 @@
-[{"name":"generate-buildid","duration":313,"timestamp":1456708792,"id":4,"parentId":1,"tags":{},"startTime":1782985661145,"traceId":"8673b4afb74af278"},{"name":"load-custom-routes","duration":302,"timestamp":1456709216,"id":5,"parentId":1,"tags":{},"startTime":1782985661146,"traceId":"8673b4afb74af278"},{"name":"next-build","duration":1671395,"timestamp":1456599582,"id":1,"tags":{"buildMode":"default","isTurboBuild":"false","version":"15.5.20"},"startTime":1782985661036,"traceId":"8673b4afb74af278"}]
-[{"name":"next-dev","duration":3999127,"timestamp":445972662,"id":1,"tags":{},"startTime":1783071370957,"traceId":"40642065b3fd2313"}]
-[{"name":"next-dev","duration":519041,"timestamp":468598396,"id":1,"tags":{},"startTime":1783071393583,"traceId":"43744844bf5f3f7c"}]
