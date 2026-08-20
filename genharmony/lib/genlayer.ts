@@ -62,6 +62,7 @@ export function useHarmonyForge() {
 
   const write = useCallback(async (
     functionName: string, args: unknown[] = [], value = BigInt(0),
+    waitFor: TransactionStatus = TransactionStatus.ACCEPTED,
   ): Promise<{ txHash: string; result: unknown }> => {
     if (chainId !== genLayerStudio.id) {
       try { await switchChainAsync({ chainId: genLayerStudio.id }); }
@@ -74,9 +75,20 @@ export function useHarmonyForge() {
     const txHash = await client.writeContract({
       account, address: CONTRACT_ADDRESS, functionName, args: args as never[], value,
     });
-    const receipt = await client.waitForTransactionReceipt({
-      hash: txHash, status: TransactionStatus.ACCEPTED,
+    // Guard against the SDK never resolving if the tx lands in a terminal
+    // failure state (UNDETERMINED / CANCELED / VALIDATORS_TIMEOUT /
+    // LEADER_TIMEOUT) instead of the status we're waiting for — without
+    // this, waiting for FINALIZED specifically could hang forever on a
+    // failed consensus round rather than surfacing an error.
+    const receiptPromise = client.waitForTransactionReceipt({
+      hash: txHash, status: waitFor,
     });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(
+        `Transaction ${txHash} did not reach ${waitFor} within 3 minutes — it may still be processing on-chain. Check the explorer for its real status.`
+      )), 180_000)
+    );
+    const receipt = await Promise.race([receiptPromise, timeoutPromise]);
     const result = (receipt as unknown as Record<string, unknown>).result ?? txHash;
     return { txHash: txHash as string, result };
   }, [chainId, switchChainAsync]);
@@ -94,7 +106,7 @@ export function useHarmonyForge() {
     fundTreasury: (valueWei: bigint) =>
       write("fund_treasury", [], valueWei).then(({ txHash }) => txHash),
     claimRewards: () =>
-      write("claim_rewards", []).then(({ txHash }) => txHash),
+      write("claim_rewards", [], BigInt(0), TransactionStatus.FINALIZED).then(({ txHash }) => txHash),
     mintElement: (trackId: string, kind: string, valueWei: bigint) =>
       write("mint_element", [trackId, kind], valueWei).then(({ result }) => coerce<string>(result)),
     // reads
