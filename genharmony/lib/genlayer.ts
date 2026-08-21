@@ -83,10 +83,14 @@ export function useHarmonyForge() {
     const receiptPromise = client.waitForTransactionReceipt({
       hash: txHash, status: waitFor,
     });
+    // FINALIZED requires waiting through the full appeal window on top of
+    // consensus acceptance, so it needs materially more time than ACCEPTED.
+    const timeoutMs = waitFor === TransactionStatus.FINALIZED ? 480_000 : 180_000;
+    const timeoutMinutes = timeoutMs / 60_000;
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(
-        `Transaction ${txHash} did not reach ${waitFor} within 3 minutes — it may still be processing on-chain. Check the explorer for its real status.`
-      )), 180_000)
+        `Transaction ${txHash} did not reach ${waitFor} within ${timeoutMinutes} minutes — it may still be processing on-chain. Check the explorer for its real status.`
+      )), timeoutMs)
     );
     const receipt = await Promise.race([receiptPromise, timeoutPromise]);
     console.log("RAW RECEIPT for", functionName, JSON.stringify(receipt, (_, v) => typeof v === "bigint" ? v.toString() : v, 2));
