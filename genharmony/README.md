@@ -8,7 +8,7 @@ This is only possible on GenLayer. A standard EVM chain can't run subjective jud
 
 ## Live Demo
 
-**App:** [gen-harmonyfr.vercel.app](https://gen-harmonyfr.vercel.app/)
+**App:** [gen-harmonydr.vercel.app](https://gen-harmonydr.vercel.app/)
 
 Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Studio network when prompted — the app will request the switch automatically on your first write action.
 
@@ -19,9 +19,9 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 | Network | GenLayer Studio |
 | Chain ID | `61999` |
 | RPC URL | `https://studio.genlayer.com:8443/api` |
-| Contract address | `0x808B4C20b9FDE1cc9f96Bd0a6A421fb8D1F9b50B` |
+| Contract address | `0xf3A003E144ddfd1dd457B0E6016d7597FAee390D` |
 | Contract source | [`contracts/HarmonyForge.py`](./contracts/HarmonyForge.py) |
-| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0x808B4C20b9FDE1cc9f96Bd0a6A421fb8D1F9b50B) |
+| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0xf3A003E144ddfd1dd457B0E6016d7597FAee390D) |
 
 ## Tech Stack
 
