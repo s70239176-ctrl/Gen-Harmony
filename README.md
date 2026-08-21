@@ -20,7 +20,7 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 | Chain ID | `61999` |
 | RPC URL | `https://studio.genlayer.com:8443/api` |
 | Contract address | `0x674f82630ddfCc934689Af2666248068D66Fb7Ef` |
-| Contract source | [`contracts/harmonyforge.py`](./contracts/harmonyforge.py) |
+| Contract source | [`contracts/harmonyforge.py`]([./contracts/harmonyforge.py](https://github.com/s70239176-ctrl/Gen-Harmony/blob/main/genharmony/contracts/harmonyforge.py)) |
 | Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0x674f82630ddfCc934689Af2666248068D66Fb7Ef) |
 
 ## Tech Stack
