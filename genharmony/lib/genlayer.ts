@@ -89,6 +89,7 @@ export function useHarmonyForge() {
       )), 180_000)
     );
     const receipt = await Promise.race([receiptPromise, timeoutPromise]);
+    console.log("RAW RECEIPT for", functionName, JSON.stringify(receipt, (_, v) => typeof v === "bigint" ? v.toString() : v, 2));
     const result = (receipt as unknown as Record<string, unknown>).result ?? txHash;
     return { txHash: txHash as string, result };
   }, [chainId, switchChainAsync]);
