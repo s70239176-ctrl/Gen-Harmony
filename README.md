@@ -19,9 +19,9 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 | Network | GenLayer Studio |
 | Chain ID | `61999` |
 | RPC URL | `https://studio.genlayer.com:8443/api` |
-| Contract address | `0xf3A003E144ddfd1dd457B0E6016d7597FAee390D` |
+| Contract address | `0x674f82630ddfCc934689Af2666248068D66Fb7Ef` |
 | Contract source | [`contracts/HarmonyForge.py`](./contracts/HarmonyForge.py) |
-| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0xf3A003E144ddfd1dd457B0E6016d7597FAee390D) |
+| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0x674f82630ddfCc934689Af2666248068D66Fb7Ef) |
 
 ## Tech Stack
 
@@ -38,7 +38,7 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 2. **Propose an evolution** — any contributor calls `propose_evolution(track_id, contribution_text, contribution_type)`, queuing a pending proposal.
 3. **Convene the jury** — `evaluate_proposal(proposal_id)` triggers the LLM jury:
    - A **leader** validator calls the LLM once with a prompt describing the track and the proposed contribution, and gets back a JSON verdict: an `approve` decision, four 0–100 scores (quality, originality, emotional, canon fit), merged content, and a rationale.
-   - Every other **validator** independently re-runs the identical LLM prompt and forms its own verdict. Consensus requires validators to agree with the leader on the binary `approve`/`reject` decision (not exact scores — LLM scoring is inherently noisy between calls, so requiring exact score agreement caused false rejections in earlier testing).
+   - Every other **validator** independently re-runs the identical LLM prompt and forms its own verdict. Consensus requires: the validator's `approve`/`reject` decision matches the leader's; each of the four individual scores (quality, originality, emotional, canon fit) is within `SCORE_TOLERANCE` (25 points) of the leader's — checked per-score, not just as a composite average; and, on approval, the leader's proposed canon content shares at least half its significant terms with what the validator itself independently generated for the same prompt (`MIN_CONTENT_OVERLAP_RATIO`), on top of a separate check that the content genuinely derives from the original track and contribution rather than being fabricated.
    - The contract only merges the evolution into canon if **both** the LLM's own `approve` decision is `true` **and** the composite score clears `APPROVAL_THRESHOLD` (currently 55/100).
 4. **Merge or reject** — on approval, `track.current_content` is updated, `track.version` increments, and a GEN reward is credited to the contributor (pull-payment pattern via `claim_rewards`). On rejection, the proposal is marked rejected and the track is untouched.
 5. **Mint** — any contributor can mint the current version of a track as a provenance-tracked element (`mint_element`), paying GEN into the shared treasury.
