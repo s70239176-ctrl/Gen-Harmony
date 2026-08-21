@@ -7,6 +7,9 @@ SCORE_TOLERANCE     = 25   # max allowed gap between leader's and a validator's
                             # independently-judged COMPOSITE score (0-100 scale)
 MIN_SHARED_TERMS    = 3    # min significant terms evolved_content must share
                             # with (track content + contribution) to be accepted
+MIN_CONTENT_OVERLAP_RATIO = 0.5   # min fraction of significant terms the leader's
+                                   # evolved_content must share with a validator's
+                                   # own independently re-derived evolved_content
 MAX_REWARD_BPS    = u256(1000)
 BPS_DENOMINATOR   = u256(10000)
 MIN_REWARD_WEI    = u256(10_000_000_000_000_000)
@@ -419,6 +422,25 @@ Return ONLY a JSON object with keys:
 
         return len(evolved_terms & base_terms) >= MIN_SHARED_TERMS
 
+    def _content_matches(self, a: str, b: str, min_ratio: float) -> bool:
+        """
+        Deterministic, non-LLM overlap check between two independently
+        produced content strings. Binds the leader's proposed canon content
+        to what a validator's own independent LLM run produced for the
+        identical prompt.
+        """
+        def significant_terms(s: str) -> set:
+            return {w.lower() for w in s.split() if len(w) >= 4}
+
+        terms_a = significant_terms(a)
+        terms_b = significant_terms(b)
+        if not terms_a or not terms_b:
+            return False
+
+        overlap = len(terms_a & terms_b)
+        smaller = min(len(terms_a), len(terms_b))
+        return (overlap / smaller) >= min_ratio
+
     def _judge_evolution(self, track: dict, proposal: dict) -> dict:
         genre   = track.get("genre", "")
         url     = ("https://en.wikipedia.org/wiki/" + genre.strip().replace(" ", "_")) if genre else ""
@@ -452,17 +474,7 @@ Return ONLY a JSON object with keys:
             if not isinstance(d.get("evolved_content"), str) or not isinstance(d.get("rationale"), str):
                 return False
 
-            # --- Content integrity: guards what actually becomes canon ---
-            if d["approve"]:
-                evolved = d["evolved_content"].strip()
-                if not evolved:
-                    return False
-                if evolved == track["current_content"].strip():
-                    return False  # must actually change something
-                if not self._shares_derivation(evolved, track["current_content"], proposal["contribution_text"]):
-                    return False  # content must derive from real inputs, not be fabricated
-
-            # --- Independent re-judgment: decision + score integrity ---
+            # --- Independent re-judgment: decision + per-score integrity ---
             try:
                 own = gl.nondet.exec_prompt(prompt, response_format="json")
             except Exception:
@@ -472,14 +484,31 @@ Return ONLY a JSON object with keys:
             for k in score_keys:
                 if not isinstance(own.get(k), int) or not (0 <= own[k] <= 100):
                     return False
+            if not isinstance(own.get("evolved_content"), str):
+                return False
 
             if own["approve"] != d["approve"]:
                 return False
 
-            own_composite    = sum(own[k] for k in score_keys) / 4
-            leader_composite = sum(d[k] for k in score_keys) / 4
-            if abs(own_composite - leader_composite) > SCORE_TOLERANCE:
-                return False
+            # Each reward-driving score individually, not just the composite
+            # average — a wide average can mask sharp disagreement on one
+            # or more individual dimensions.
+            for k in score_keys:
+                if abs(own[k] - d[k]) > SCORE_TOLERANCE:
+                    return False
+
+            # --- Content integrity: guards what actually becomes canon ---
+            if d["approve"]:
+                evolved = d["evolved_content"].strip()
+                if not evolved:
+                    return False
+                if evolved == track["current_content"].strip():
+                    return False  # must actually change something
+                if not self._shares_derivation(evolved, track["current_content"], proposal["contribution_text"]):
+                    return False  # content must derive from real inputs, not be fabricated
+                if not self._content_matches(evolved, own["evolved_content"].strip(), MIN_CONTENT_OVERLAP_RATIO):
+                    return False  # leader's proposed canon must substantively match what the
+                                  # validator itself independently derived
 
             return True
 
