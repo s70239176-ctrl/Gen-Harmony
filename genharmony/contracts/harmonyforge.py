@@ -12,6 +12,14 @@ BPS_DENOMINATOR   = u256(10000)
 MIN_REWARD_WEI    = u256(10_000_000_000_000_000)
 
 
+@gl.evm.contract_interface
+class _Recipient:
+    class View:
+        pass
+    class Write:
+        pass
+
+
 class HarmonyForge(gl.Contract):
     owner: Address
     next_track_id:    u256
@@ -173,7 +181,7 @@ class HarmonyForge(gl.Contract):
             raise gl.vm.UserError("no pending rewards to claim")
         if self.balance < amount:
             raise gl.vm.UserError("treasury balance temporarily insufficient")
-        gl.transfer(claimant, amount)
+        _Recipient(claimant).emit_transfer(value=amount)
         self.pending_rewards[claimant] = u256(0)
         self.treasury_locked = (
             self.treasury_locked - amount if self.treasury_locked >= amount else u256(0)
