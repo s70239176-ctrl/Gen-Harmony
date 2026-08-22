@@ -107,11 +107,11 @@ export function useHarmonyForge() {
     forkTrack: (parentTrackId: string, newTitle: string) =>
       write("fork_track", [parentTrackId, newTitle]).then(({ result }) => coerce<string>(result)),
     evaluateProposal: (proposalId: string) =>
-      write("evaluate_proposal", [proposalId], BigInt(0), TransactionStatus.FINALIZED).then(({ txHash }) => txHash),
+      write("evaluate_proposal", [proposalId]).then(({ txHash }) => txHash),
     fundTreasury: (valueWei: bigint) =>
       write("fund_treasury", [], valueWei).then(({ txHash }) => txHash),
     claimRewards: () =>
-      write("claim_rewards", [], BigInt(0), TransactionStatus.FINALIZED).then(({ txHash }) => txHash),
+      write("claim_rewards", []).then(({ txHash }) => txHash),
     mintElement: (trackId: string, kind: string, valueWei: bigint) =>
       write("mint_element", [trackId, kind], valueWei).then(({ result }) => coerce<string>(result)),
     // reads
