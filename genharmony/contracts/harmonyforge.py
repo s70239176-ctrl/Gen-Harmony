@@ -3,11 +3,11 @@ from genlayer import *
 import json
 
 APPROVAL_THRESHOLD = 55
-SCORE_TOLERANCE     = 25   # max allowed gap between leader's and a validator's
-                            # independently-judged COMPOSITE score (0-100 scale)
+SCORE_TOLERANCE     = 10   # max allowed gap between leader's and a validator's
+                            # independently-judged score, checked PER AXIS
 MIN_SHARED_TERMS    = 3    # min significant terms evolved_content must share
                             # with (track content + contribution) to be accepted
-MIN_CONTENT_OVERLAP_RATIO = 0.5   # min fraction of significant terms the leader's
+MIN_CONTENT_OVERLAP_RATIO = 0.75  # min fraction of significant terms the leader's
                                    # evolved_content must share with a validator's
                                    # own independently re-derived evolved_content
 MAX_REWARD_BPS    = u256(1000)
