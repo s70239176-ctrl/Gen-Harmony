@@ -31,7 +31,7 @@ const GL_KEY = "genharmony_contributor_pk";
 
 function getOrCreateContributorKey(): `0x${string}` {
   if (typeof window === "undefined")
-    return "0x4E7D55Ee770E22dC73C976FACf44307cD2a172De000000000000000000000001";
+    return "0xeff4707d94140272f6C5895897e74ac583541b5e000000000000000000000001";
   let pk = localStorage.getItem(GL_KEY) as `0x${string}` | null;
   if (!pk) { pk = generatePrivateKey(); localStorage.setItem(GL_KEY, pk); }
   return pk;

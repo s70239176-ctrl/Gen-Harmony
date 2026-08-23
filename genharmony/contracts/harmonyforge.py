@@ -356,7 +356,10 @@ class HarmonyForge(gl.Contract):
 
     @gl.public.view
     def get_next_proposal_id(self) -> str:
-        """Return the id that will be assigned to the next submitted proposal."""
+        """Return the id that WOULD be assigned to the next proposal, as of
+        this read. NOT safe to treat as the id of a proposal you're about to
+        submit — another proposal can land first. Always use the id returned
+        by propose_evolution's own transaction receipt instead."""
         return str(self.next_proposal_id)
 
     # ------------------------------------------------------------------
@@ -457,6 +460,42 @@ Return ONLY a JSON object with keys:
         smaller = min(len(terms_a), len(terms_b))
         return (overlap / smaller) >= min_ratio
 
+    def _content_equivalent(self, a: str, b: str, track: dict, proposal: dict) -> bool:
+        """
+        Semantic fallback for when _content_matches fails on lexical grounds.
+        Two independently-generated creative merges of the same inputs can be
+        substantively the same evolution while sharing almost no vocabulary
+        (paraphrase, reordering, synonym choice). This asks an LLM juror to
+        judge equivalence directly, rather than penalizing wording variance
+        that a strict-eq or term-overlap check can't distinguish from a
+        genuinely different outcome.
+        """
+        equivalence_prompt = f"""You are comparing two independently-produced merges of the
+same canon content with the same proposed contribution. Judge ONLY whether
+they represent the SAME substantive creative evolution — same core ideas,
+same structural change to the canon — allowing for paraphrase, reordering,
+and different word choice. Wording differences alone do NOT make them
+non-equivalent. A genuinely different creative direction, added or missing
+content, or a different interpretation of the contribution DOES make them
+non-equivalent.
+
+ORIGINAL CANON CONTENT: {track['current_content']}
+PROPOSED CONTRIBUTION: {proposal['contribution_text']}
+
+MERGE A: {a}
+
+MERGE B: {b}
+
+Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 chars)}}"""
+
+        try:
+            result = gl.nondet.exec_prompt(equivalence_prompt, response_format="json")
+        except Exception:
+            return False
+        if not isinstance(result, dict) or not isinstance(result.get("equivalent"), bool):
+            return False
+        return result["equivalent"]
+
     def _judge_evolution(self, track: dict, proposal: dict) -> dict:
         genre   = track.get("genre", "")
         url     = ("https://en.wikipedia.org/wiki/" + genre.strip().replace(" ", "_")) if genre else ""
@@ -523,8 +562,12 @@ Return ONLY a JSON object with keys:
                 if not self._shares_derivation(evolved, track["current_content"], proposal["contribution_text"]):
                     return False  # content must derive from real inputs, not be fabricated
                 if not self._content_matches(evolved, own["evolved_content"].strip(), MIN_CONTENT_OVERLAP_RATIO):
-                    return False  # leader's proposed canon must substantively match what the
-                                  # validator itself independently derived
+                    # lexical fast-path failed — before rejecting, check whether the
+                    # two merges are substantively the same evolution just phrased
+                    # differently, rather than treating wording variance as divergence
+                    if not self._content_equivalent(evolved, own["evolved_content"].strip(), track, proposal):
+                        return False  # leader's proposed canon must substantively match what the
+                                      # validator itself independently derived, lexically or semantically
 
             return True
 
