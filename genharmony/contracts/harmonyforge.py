@@ -99,6 +99,7 @@ class HarmonyForge(gl.Contract):
             "contribution_type": contribution_type,
             "status": "pending", "scores": None,
             "evolved_content": None, "rationale": None,
+            "track_version": json.loads(raw)["version"],
         })
         return proposal_id
 
@@ -119,6 +120,21 @@ class HarmonyForge(gl.Contract):
         if raw_track is None:
             raise gl.vm.UserError("track no longer exists")
         track = json.loads(raw_track)
+
+        if track["version"] != proposal.get("track_version"):
+            proposal["status"]    = "stale"
+            proposal["rationale"] = (
+                f"track advanced to version {track['version']} after this proposal "
+                f"was submitted against version {proposal.get('track_version')} — "
+                f"resubmit against the current canon content"
+            )
+            self.proposals[proposal_id] = json.dumps(proposal)
+            return json.dumps({
+                "proposal_id": proposal_id,
+                "status": "stale",
+                "current_track_version": track["version"],
+                "proposal_track_version": proposal.get("track_version"),
+            })
 
         verdict = self._judge_evolution(track, proposal)
         composite = (verdict["originality"] + verdict["quality"] +

@@ -103,7 +103,21 @@ export function useHarmonyForge() {
     submitSeed: (title: string, seedPrompt: string, genre: string) =>
       write("submit_seed", [title, seedPrompt, genre]).then(({ result }) => coerce<string>(result)),
     proposeEvolution: (trackId: string, text: string, type: string) =>
-      write("propose_evolution", [trackId, text, type]).then(({ result }) => coerce<string>(result)),
+      write("propose_evolution", [trackId, text, type]).then(({ result, txHash }) => {
+        const id = coerce<string>(result);
+        // propose_evolution returns a plain numeric proposal id, not a hash.
+        // If the SDK failed to surface receipt.result, write() falls back to
+        // txHash — catch that here rather than let a hash silently pass as
+        // an authoritative proposal id to the caller.
+        if (!/^\d+$/.test(id) || id === txHash) {
+          throw new Error(
+            `propose_evolution did not return a usable proposal id (got "${id}"). ` +
+            `Transaction ${txHash} may have succeeded on-chain — check the explorer, ` +
+            `then look up the proposal via get_next_proposal_id or track history.`
+          );
+        }
+        return id;
+      }),
     forkTrack: (parentTrackId: string, newTitle: string) =>
       write("fork_track", [parentTrackId, newTitle]).then(({ result }) => coerce<string>(result)),
     evaluateProposal: (proposalId: string) =>
