@@ -1,8 +1,12 @@
 "use client";
 import { useState } from "react";
-import { useHarmonyForge } from "@/lib/genlayer";
+import { WagmiProvider } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useHarmonyForge, wagmiConfig } from "@/lib/genlayer";
 
-export default function DebugProposal() {
+const queryClient = new QueryClient();
+
+function DebugProposalInner() {
   const { getProposal, getTrack } = useHarmonyForge();
   const [proposalId, setProposalId] = useState("");
   const [trackId, setTrackId] = useState("");
@@ -76,5 +80,15 @@ export default function DebugProposal() {
         </pre>
       )}
     </div>
+  );
+}
+
+export default function DebugProposal() {
+  return (
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <DebugProposalInner />
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
