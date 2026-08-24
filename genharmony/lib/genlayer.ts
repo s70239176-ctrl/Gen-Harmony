@@ -43,7 +43,14 @@ export function getContributorAddress(): string {
 }
 
 function coerce<T>(v: unknown): T {
-  if (typeof v === "string") { try { return JSON.parse(v) as T; } catch { return v as unknown as T; } }
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+    if (looksLikeJson) {
+      try { return JSON.parse(trimmed) as T; } catch { /* fall through */ }
+    }
+    return v as unknown as T;
+  }
   return v as unknown as T;
 }
 
@@ -104,7 +111,7 @@ export function useHarmonyForge() {
       write("submit_seed", [title, seedPrompt, genre]).then(({ result }) => coerce<string>(result)),
     proposeEvolution: (trackId: string, text: string, type: string) =>
       write("propose_evolution", [trackId, text, type]).then(({ result, txHash }) => {
-        const id = coerce<string>(result);
+        const id = String(coerce<unknown>(result));
         // propose_evolution returns a plain numeric proposal id, not a hash.
         // If the SDK failed to surface receipt.result, write() falls back to
         // txHash — catch that here rather than let a hash silently pass as
@@ -121,7 +128,7 @@ export function useHarmonyForge() {
     forkTrack: (parentTrackId: string, newTitle: string) =>
       write("fork_track", [parentTrackId, newTitle]).then(({ result }) => coerce<string>(result)),
     evaluateProposal: (proposalId: string) =>
-      write("evaluate_proposal", [proposalId]).then(({ txHash }) => txHash),
+      write("evaluate_proposal", [String(proposalId)]).then(({ txHash }) => txHash),
     fundTreasury: (valueWei: bigint) =>
       write("fund_treasury", [], valueWei).then(({ txHash }) => txHash),
     claimRewards: () =>
