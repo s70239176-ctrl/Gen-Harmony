@@ -112,7 +112,7 @@ export function useHarmonyForge() {
     const leaderResult = (receipt as unknown as {
       consensus_data?: { leader_receipt?: Array<{ result?: unknown }> };
     })?.consensus_data?.leader_receipt?.[0]?.result;
-    console.log("DEBUG leaderResult raw:", leaderResult, "typeof:", typeof leaderResult);
+    console.log("DEBUG leaderResult raw (full):", JSON.stringify(leaderResult, (_, v) => typeof v === "bigint" ? v.toString() : v, 2), "typeof:", typeof leaderResult);
     console.log("DEBUG full receipt.consensus_data:", JSON.stringify(
       (receipt as unknown as Record<string, unknown>)?.consensus_data,
       (_, v) => typeof v === "bigint" ? v.toString() : v, 2
