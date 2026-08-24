@@ -5,7 +5,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createConfig, http, useAccount, useWalletClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
-import { createClient, createAccount, abi } from "genlayer-js";
+import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
 import type { Track, Proposal, MintedElement } from "./types";
@@ -112,22 +112,19 @@ export function useHarmonyForge() {
     const leaderResult = (receipt as unknown as {
       consensus_data?: { leader_receipt?: Array<{ result?: unknown }> };
     })?.consensus_data?.leader_receipt?.[0]?.result;
-    console.log("DEBUG leaderResult raw (full):", JSON.stringify(leaderResult, (_, v) => typeof v === "bigint" ? v.toString() : v, 2), "typeof:", typeof leaderResult);
-    console.log("DEBUG full receipt.consensus_data:", JSON.stringify(
-      (receipt as unknown as Record<string, unknown>)?.consensus_data,
-      (_, v) => typeof v === "bigint" ? v.toString() : v, 2
-    ));
-    if (typeof leaderResult === "string") {
+    // leader_receipt[0].result is an object shaped { status: "return", payload: { readable: "<json-encoded value>" } }.
+    // payload.readable is a JSON-encoded string (e.g. the literal text `"26"`
+    // for a proposal id of 26), so it needs one JSON.parse to unwrap into the
+    // real value — not base64/binary calldata as the shape elsewhere in this
+    // SDK might suggest.
+    const readable = (leaderResult as { status?: string; payload?: { readable?: string } })
+      ?.payload?.readable;
+    if (typeof readable === "string") {
       try {
-        const bytes = Uint8Array.from(atob(leaderResult), (c) => c.charCodeAt(0));
-        console.log("DEBUG decoded bytes length:", bytes.length, "first 20 bytes:", Array.from(bytes.slice(0, 20)));
-        result = abi.calldata.decode(bytes);
-        console.log("DEBUG abi.calldata.decode succeeded:", result);
-      } catch (decodeErr) {
-        console.error("DEBUG decode failed:", decodeErr);
+        result = JSON.parse(readable);
+      } catch {
+        // leave result as the txHash fallback; callers validate shape themselves
       }
-    } else {
-      console.warn("DEBUG leaderResult is not a string, skipping decode");
     }
     return { txHash: txHash as string, result };
   }, [chainId, switchChainAsync]);
