@@ -5,7 +5,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createConfig, http, useAccount, useWalletClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useCallback, useMemo } from "react";
-import { createClient, createAccount } from "genlayer-js";
+import { createClient, createAccount, abi } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
 import type { Track, Proposal, MintedElement } from "./types";
@@ -101,7 +101,28 @@ export function useHarmonyForge() {
     );
     const receipt = await Promise.race([receiptPromise, timeoutPromise]);
     console.log("RAW RECEIPT for", functionName, JSON.stringify(receipt, (_, v) => typeof v === "bigint" ? v.toString() : v, 2));
-    const result = (receipt as unknown as Record<string, unknown>).result ?? txHash;
+    // receipt.result (top-level) is a numeric transaction-outcome/status enum
+    // (e.g. maps to TransactionResult), NOT the contract function's actual
+    // return value — reading it directly silently returns the wrong thing
+    // (a small integer that can coincidentally look like a valid id).
+    // The real decoded return value is base64-encoded calldata nested at
+    // consensus_data.leader_receipt[0].result, which must be run through
+    // genlayer-js's own calldata decoder to get the actual typed value.
+    let result: unknown = txHash;
+    const leaderResult = (receipt as unknown as {
+      consensus_data?: { leader_receipt?: Array<{ result?: unknown }> };
+    })?.consensus_data?.leader_receipt?.[0]?.result;
+    if (typeof leaderResult === "string") {
+      try {
+        const bytes = Uint8Array.from(atob(leaderResult), (c) => c.charCodeAt(0));
+        result = abi.calldata.decode(bytes);
+      } catch {
+        // decoding failed — fall through to the txHash fallback; callers
+        // that require a real value (e.g. proposeEvolution) validate the
+        // shape of `result` themselves and reject a hash masquerading as
+        // a real return value.
+      }
+    }
     return { txHash: txHash as string, result };
   }, [chainId, switchChainAsync]);
 
