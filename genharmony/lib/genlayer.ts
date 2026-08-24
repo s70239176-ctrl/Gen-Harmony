@@ -112,16 +112,22 @@ export function useHarmonyForge() {
     const leaderResult = (receipt as unknown as {
       consensus_data?: { leader_receipt?: Array<{ result?: unknown }> };
     })?.consensus_data?.leader_receipt?.[0]?.result;
+    console.log("DEBUG leaderResult raw:", leaderResult, "typeof:", typeof leaderResult);
+    console.log("DEBUG full receipt.consensus_data:", JSON.stringify(
+      (receipt as unknown as Record<string, unknown>)?.consensus_data,
+      (_, v) => typeof v === "bigint" ? v.toString() : v, 2
+    ));
     if (typeof leaderResult === "string") {
       try {
         const bytes = Uint8Array.from(atob(leaderResult), (c) => c.charCodeAt(0));
+        console.log("DEBUG decoded bytes length:", bytes.length, "first 20 bytes:", Array.from(bytes.slice(0, 20)));
         result = abi.calldata.decode(bytes);
-      } catch {
-        // decoding failed — fall through to the txHash fallback; callers
-        // that require a real value (e.g. proposeEvolution) validate the
-        // shape of `result` themselves and reject a hash masquerading as
-        // a real return value.
+        console.log("DEBUG abi.calldata.decode succeeded:", result);
+      } catch (decodeErr) {
+        console.error("DEBUG decode failed:", decodeErr);
       }
+    } else {
+      console.warn("DEBUG leaderResult is not a string, skipping decode");
     }
     return { txHash: txHash as string, result };
   }, [chainId, switchChainAsync]);
