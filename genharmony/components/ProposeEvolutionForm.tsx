@@ -15,7 +15,7 @@ export function ProposeEvolutionForm({
   trackId: string;
   onProposed?: (proposalId: string, type: string) => void;
 }) {
-  const { proposeEvolution, getNextProposalId } = useHarmonyForge();
+  const { proposeEvolution } = useHarmonyForge();
   const [type, setType] = useState<(typeof TYPES)[number]>("harmony");
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -27,13 +27,11 @@ export function ProposeEvolutionForm({
     setError(null);
     setSubmitting(true);
     try {
-      setStatusMsg("Reading proposal counter…");
-      const nextId = await getNextProposalId();
-      setStatusMsg(`Submitting proposal (will be #${nextId})…`);
-      await proposeEvolution(trackId, text, type);
+      setStatusMsg("Submitting proposal…");
+      const proposalId = await proposeEvolution(trackId, text, type);
       setText("");
       setStatusMsg(null);
-      onProposed?.(nextId, type);
+      onProposed?.(proposalId, type);
     } catch (err) {
       const msg = err instanceof Error ? err.message
         : typeof err === "object" ? JSON.stringify(err) : String(err);
