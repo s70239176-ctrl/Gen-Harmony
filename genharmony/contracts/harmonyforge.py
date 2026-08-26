@@ -1,6 +1,7 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
 import json
+import hashlib
 
 APPROVAL_THRESHOLD = 55
 SCORE_TOLERANCE     = 10   # max allowed gap between leader's and a validator's
@@ -81,21 +82,34 @@ class HarmonyForge(gl.Contract):
         return track_id
 
     @gl.public.write
-    def propose_evolution(self, track_id: str, contribution_text: str, contribution_type: str) -> str:
-        """Queue a remix/harmony/variation proposal for an active track."""
+    def propose_evolution(self, track_id: str, target_element: str, musical_relationship: str, key_terms: str, contribution_type: str) -> str:
+        """Queue a remix/harmony/variation proposal for an active track, as a
+        structured, content-addressed artifact rather than free text.
+
+        target_element        — what part of the track this modifies
+        musical_relationship  — the precise technical description of the change
+        key_terms             — comma-separated explicit vocabulary anchoring
+                                 the deterministic correspondence check below
+        """
         raw = self.tracks.get(track_id, None)
         if raw is None:
             raise gl.vm.UserError(f"unknown track_id: {track_id}")
         if json.loads(raw)["status"] != "active":
             raise gl.vm.UserError(f"track {track_id} is not active")
-        if not contribution_text.strip():
-            raise gl.vm.UserError("contribution_text cannot be empty")
+        if not target_element.strip() or not musical_relationship.strip() or not key_terms.strip():
+            raise gl.vm.UserError("target_element, musical_relationship, and key_terms cannot be empty")
         proposal_id = str(self.next_proposal_id)
         self.next_proposal_id = self.next_proposal_id + u256(1)
+        artifact_hash = hashlib.sha256(
+            f"{target_element}|{musical_relationship}|{key_terms}".encode()
+        ).hexdigest()
         self.proposals[proposal_id] = json.dumps({
             "id": proposal_id, "track_id": track_id,
             "proposer": str(gl.message.sender_address),
-            "contribution_text": contribution_text,
+            "target_element": target_element,
+            "musical_relationship": musical_relationship,
+            "key_terms": key_terms,
+            "artifact_hash": artifact_hash,
             "contribution_type": contribution_type,
             "status": "pending", "scores": None,
             "evolved_content": None, "rationale": None,
@@ -402,14 +416,19 @@ TRACK TITLE: {track['title']}
 GENRE: {track['genre']}
 CURRENT CANON CONTENT: {track['current_content']}
 CONTRIBUTION TYPE: {proposal['contribution_type']}
-PROPOSED CONTRIBUTION: {proposal['contribution_text']}
+TARGET ELEMENT: {proposal['target_element']}
+MUSICAL RELATIONSHIP: {proposal['musical_relationship']}
+KEY TERMS: {proposal['key_terms']}
 WEB CONTEXT: {context}
 
 Score honestly. A generic, low-effort, or filler contribution should score low.
 A genuinely original, well-crafted contribution should score high.
+Check that evolved_content and your scores genuinely correspond to the KEY
+TERMS above — a proposal whose merged content ignores or contradicts its own
+stated key terms should not be approved on the strength of its framing alone.
 If you approve, evolved_content must be the CURRENT CANON CONTENT genuinely
-merged with the PROPOSED CONTRIBUTION — not a rewrite from scratch, and not
-unrelated text.
+merged with the MUSICAL RELATIONSHIP described above — not a rewrite from
+scratch, and not unrelated text.
 
 Return ONLY a JSON object with keys:
 - "approve": boolean — your independent judgment on whether this should be merged
@@ -480,7 +499,9 @@ content, or a different interpretation of the contribution DOES make them
 non-equivalent.
 
 ORIGINAL CANON CONTENT: {track['current_content']}
-PROPOSED CONTRIBUTION: {proposal['contribution_text']}
+TARGET ELEMENT: {proposal['target_element']}
+MUSICAL RELATIONSHIP: {proposal['musical_relationship']}
+KEY TERMS: {proposal['key_terms']}
 
 MERGE A: {a}
 
@@ -559,7 +580,8 @@ Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 char
                     return False
                 if evolved == track["current_content"].strip():
                     return False  # must actually change something
-                if not self._shares_derivation(evolved, track["current_content"], proposal["contribution_text"]):
+                proposal_terms = f"{proposal['target_element']} {proposal['musical_relationship']} {proposal['key_terms']}"
+                if not self._shares_derivation(evolved, track["current_content"], proposal_terms):
                     return False  # content must derive from real inputs, not be fabricated
                 if not self._content_matches(evolved, own["evolved_content"].strip(), MIN_CONTENT_OVERLAP_RATIO):
                     # lexical fast-path failed — before rejecting, check whether the

@@ -19,9 +19,9 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 | Network | GenLayer Studio |
 | Chain ID | `61999` |
 | RPC URL | `https://studio.genlayer.com:8443/api` |
-| Contract address | `0xeff4707d94140272f6C5895897e74ac583541b5e` |
+| Contract address | `0xF631422E575219C552E0908d3dA032296FAEAb86` |
 | Contract source | [`genharmony/contracts/harmonyforge.py`](./genharmony/contracts/harmonyforge.py) |
-| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0xeff4707d94140272f6C5895897e74ac583541b5e) |
+| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0xF631422E575219C552E0908d3dA032296FAEAb86) |
 
 ## Tech Stack
 
@@ -35,10 +35,10 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 ## How It Works
 
 1. **Seed a track** — `submit_seed(title, seed_prompt, genre)` creates a new track on-chain with `version = 0`.
-2. **Propose an evolution** — any contributor calls `propose_evolution(track_id, contribution_text, contribution_type)`, queuing a pending proposal.
+2. **Propose an evolution** — any contributor calls `propose_evolution(track_id, target_element, musical_relationship, key_terms, contribution_type)`, submitting a structured, content-addressed artifact rather than free text. The contract computes a SHA-256 hash (`artifact_hash`) of the three fields at submission time, pinning the exact proposal that gets judged so it can't be silently altered before evaluation. The LLM jury is instructed to check that its scores and any merged content genuinely correspond to the stated `key_terms`, rather than approving on the strength of vague or generic framing.
 3. **Convene the jury** — `evaluate_proposal(proposal_id)` triggers the LLM jury:
    - A **leader** validator calls the LLM once with a prompt describing the track and the proposed contribution, and gets back a JSON verdict: an `approve` decision, four 0–100 scores (quality, originality, emotional, canon fit), merged content, and a rationale.
-   - Every other **validator** independently re-runs the identical LLM prompt and forms its own verdict. Consensus requires: the validator's `approve`/`reject` decision matches the leader's; each of the four individual scores (quality, originality, emotional, canon fit) is within `SCORE_TOLERANCE` (25 points) of the leader's — checked per-score, not just as a composite average; and, on approval, the leader's proposed canon content shares at least half its significant terms with what the validator itself independently generated for the same prompt (`MIN_CONTENT_OVERLAP_RATIO`), on top of a separate check that the content genuinely derives from the original track and contribution rather than being fabricated.
+   - Every other **validator** independently re-runs the identical LLM prompt and forms its own verdict. Consensus requires: the validator's `approve`/`reject` decision matches the leader's; each of the four individual scores (quality, originality, emotional, canon fit) is within `SCORE_TOLERANCE` (10 points) of the leader's — checked per-score, not just as a composite average; and, on approval, the leader's proposed canon content shares at least half its significant terms with what the validator itself independently generated for the same prompt (`MIN_CONTENT_OVERLAP_RATIO`), on top of a separate check that the content genuinely derives from the original track and contribution rather than being fabricated.
    - The contract only merges the evolution into canon if **both** the LLM's own `approve` decision is `true` **and** the composite score clears `APPROVAL_THRESHOLD` (currently 55/100).
 4. **Merge or reject** — on approval, `track.current_content` is updated, `track.version` increments, and a GEN reward is credited to the contributor (pull-payment pattern via `claim_rewards`). On rejection, the proposal is marked rejected and the track is untouched.
 5. **Mint** — any contributor can mint the current version of a track as a provenance-tracked element (`mint_element`), paying GEN into the shared treasury.
@@ -71,10 +71,18 @@ Paste these directly into the app to test end-to-end quickly.
 | Prompt | A church organ recorded through a broken transistor radio. The static isn't noise — it's the only part of the recording that sounds honest. |
 
 **Strong evolution (should be approved):**
-> Layer a second organ voice a fifth below the main line, recorded through even worse static than the original — degraded enough that it's barely a pitch, more a suggestion of one. Let it enter only once, under the final phrase, then cut hard to silence.
+| Field | Value |
+|---|---|
+| Target element | Second organ voice |
+| Musical relationship | Layer a second organ voice a fifth below the main line, recorded through even worse static than the original — degraded enough that it's barely a pitch, more a suggestion of one. Let it enter only once, under the final phrase, then cut hard to silence. |
+| Key terms | organ, fifth interval, static degradation, single entrance, final phrase, hard cut |
 
 **Weak evolution (should be rejected):**
-> i like this song its nice and calm good vibes
+| Field | Value |
+|---|---|
+| Target element | vibe |
+| Musical relationship | i like this song its nice and calm good vibes |
+| Key terms | nice, calm |
 
 Submitting the weak version and convening the jury should return a **Rejected** verdict with a low composite score — this is the clearest single test of whether the jury is discriminating on quality rather than rubber-stamping everything.
 
@@ -86,7 +94,8 @@ Being direct about these rather than glossing over them:
 - **Contributor identity is a browser-local key, not a full wallet.** To work around GenLayer Studio's transaction format not being signable by MetaMask directly, each browser generates and stores its own GenLayer signing key in `localStorage` on first visit. This means identity is tied to a browser/device, not portable across devices, and would need to be replaced with proper wallet-based signing (e.g. a MetaMask Snap, once stable) before this could be considered production-ready.
 - **Audio is not on-chain.** Audio URLs pasted into the player are stored in the browser's `localStorage`, keyed per track version — not written to the contract. This is a UI convenience only and does not persist across browsers/devices, and is lost if local storage is cleared.
 - **Track history is reconstructed client-side, not stored as a first-class contract record.** The contract does not currently store a per-track history array; the frontend derives version history by scanning all proposals and filtering for ones that belong to the track and were approved. This works correctly at demo scale but scales linearly with total proposals across the whole contract, not just the one track — a production version should add a dedicated `get_track_history` view backed by real on-chain storage.
-- **Plagiarism/originality context is limited.** The jury's web context is a single best-effort fetch of a Wikipedia page for the track's genre, used to ground the LLM's judgment — it is not a real plagiarism detection system and should not be represented as one.
+- **Content-addressing is text-only, not audio.** Each proposal's structured fields (`target_element`, `musical_relationship`, `key_terms`) are hashed (`artifact_hash`, SHA-256) at submission time, which guarantees the exact text judged wasn't altered before evaluation — but the hash binds to a *text description* of the musical idea, not to any actual audio. Nothing in the contract processes real audio content; there is no on-chain musical artifact to bind to (see "Audio is not on-chain" below).
+- **Provenance and originality are LLM-judgment-only, not verified against real evidence.** The jury's only external context is a single best-effort fetch of a Wikipedia page for the track's genre. This lets the LLM flag generic/clichéd contributions and check that scores correspond to a proposal's own stated key terms, but it is not a real plagiarism detection system, and it cannot verify that a musical idea traces back to any genuine external source — both should be understood as best-effort judgment calls, not verified guarantees.
 - **Testnet only.** This is deployed on GenLayer Studio, not a production GenLayer network. Contract state can be reset by redeployment, and gas/economics are not representative of mainnet conditions.
 - **Reward formula is a simple quadratic curve**, not economically tuned — it exists to demonstrate the pull-payment reward mechanism working end-to-end, not as a finished tokenomics model.
 

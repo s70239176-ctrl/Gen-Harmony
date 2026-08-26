@@ -17,7 +17,9 @@ export function ProposeEvolutionForm({
 }) {
   const { proposeEvolution } = useHarmonyForge();
   const [type, setType] = useState<(typeof TYPES)[number]>("harmony");
-  const [text, setText] = useState("");
+  const [targetElement, setTargetElement] = useState("");
+  const [musicalRelationship, setMusicalRelationship] = useState("");
+  const [keyTerms, setKeyTerms] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -28,8 +30,12 @@ export function ProposeEvolutionForm({
     setSubmitting(true);
     try {
       setStatusMsg("Submitting proposal…");
-      const proposalId = await proposeEvolution(trackId, text, type);
-      setText("");
+      const proposalId = await proposeEvolution(
+        trackId, targetElement, musicalRelationship, keyTerms, type
+      );
+      setTargetElement("");
+      setMusicalRelationship("");
+      setKeyTerms("");
       setStatusMsg(null);
       onProposed?.(proposalId, type);
     } catch (err) {
@@ -60,9 +66,17 @@ export function ProposeEvolutionForm({
           </button>
         ))}
       </div>
-      <Textarea label="Contribution" rows={3} value={text}
-        onChange={(e) => setText(e.target.value)} required
-        placeholder="Add a half-time breakdown that strips to a single arpeggiated synth..." />
+      <div className="space-y-3">
+        <Textarea label="Target element" rows={1} value={targetElement}
+          onChange={(e) => setTargetElement(e.target.value)} required
+          placeholder="e.g. underlying texture, second verse, outro" />
+        <Textarea label="Musical relationship" rows={3} value={musicalRelationship}
+          onChange={(e) => setMusicalRelationship(e.target.value)} required
+          placeholder="Describe precisely what changes and how it relates to the existing canon content..." />
+        <Textarea label="Key terms" rows={1} value={keyTerms}
+          onChange={(e) => setKeyTerms(e.target.value)} required
+          placeholder="Comma-separated vocabulary anchoring this change, e.g. vocal texture, filtered, swell" />
+      </div>
       {statusMsg && <p className="mt-3 font-mono text-[11px] text-muted">{statusMsg}</p>}
       {error && <p className="mt-3 font-mono text-[12px] text-pulse">{error}</p>}
       <Button type="submit" variant="secondary" loading={submitting} className="mt-4 w-full">
