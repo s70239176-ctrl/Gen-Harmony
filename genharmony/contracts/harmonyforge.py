@@ -82,7 +82,7 @@ class HarmonyForge(gl.Contract):
         return track_id
 
     @gl.public.write
-    def propose_evolution(self, track_id: str, target_element: str, musical_relationship: str, key_terms: str, contribution_type: str) -> str:
+    def propose_evolution(self, track_id: str, target_element: str, musical_relationship: str, key_terms: str, contribution_type: str, audio_url: str = "", audio_hash: str = "") -> str:
         """Queue a remix/harmony/variation proposal for an active track, as a
         structured, content-addressed artifact rather than free text.
 
@@ -90,6 +90,19 @@ class HarmonyForge(gl.Contract):
         musical_relationship  — the precise technical description of the change
         key_terms             — comma-separated explicit vocabulary anchoring
                                  the deterministic correspondence check below
+        audio_url             — optional link to actual audio for this proposal
+        audio_hash            — optional SHA-256 hex digest of that audio file's
+                                 bytes, computed client-side (GenVM cannot process
+                                 binary audio). Pinned into artifact_hash below so
+                                 the referenced audio can't be silently swapped
+                                 after submission. NOTE: this is an integrity
+                                 check only — it confirms which audio file is
+                                 being referenced, not that the audio itself
+                                 musically corresponds to target_element/
+                                 musical_relationship/key_terms. The jury has no
+                                 ability to listen to or analyze audio content;
+                                 correspondence, provenance, and originality
+                                 judgments remain based on the text fields alone.
         """
         raw = self.tracks.get(track_id, None)
         if raw is None:
@@ -98,10 +111,12 @@ class HarmonyForge(gl.Contract):
             raise gl.vm.UserError(f"track {track_id} is not active")
         if not target_element.strip() or not musical_relationship.strip() or not key_terms.strip():
             raise gl.vm.UserError("target_element, musical_relationship, and key_terms cannot be empty")
+        if bool(audio_url.strip()) != bool(audio_hash.strip()):
+            raise gl.vm.UserError("audio_url and audio_hash must both be provided, or both left empty")
         proposal_id = str(self.next_proposal_id)
         self.next_proposal_id = self.next_proposal_id + u256(1)
         artifact_hash = hashlib.sha256(
-            f"{target_element}|{musical_relationship}|{key_terms}".encode()
+            f"{target_element}|{musical_relationship}|{key_terms}|{audio_hash}".encode()
         ).hexdigest()
         self.proposals[proposal_id] = json.dumps({
             "id": proposal_id, "track_id": track_id,
@@ -109,6 +124,8 @@ class HarmonyForge(gl.Contract):
             "target_element": target_element,
             "musical_relationship": musical_relationship,
             "key_terms": key_terms,
+            "audio_url": audio_url,
+            "audio_hash": audio_hash,
             "artifact_hash": artifact_hash,
             "contribution_type": contribution_type,
             "status": "pending", "scores": None,
@@ -419,6 +436,7 @@ CONTRIBUTION TYPE: {proposal['contribution_type']}
 TARGET ELEMENT: {proposal['target_element']}
 MUSICAL RELATIONSHIP: {proposal['musical_relationship']}
 KEY TERMS: {proposal['key_terms']}
+AUDIO REFERENCE: {"a file is referenced (hash: " + proposal['audio_hash'][:12] + "...) but you cannot access, play, or analyze it" if proposal.get('audio_hash') else "none provided"}
 WEB CONTEXT: {context}
 
 Score honestly. A generic, low-effort, or filler contribution should score low.
@@ -426,6 +444,10 @@ A genuinely original, well-crafted contribution should score high.
 Check that evolved_content and your scores genuinely correspond to the KEY
 TERMS above — a proposal whose merged content ignores or contradicts its own
 stated key terms should not be approved on the strength of its framing alone.
+The presence of an AUDIO REFERENCE is NOT evidence of quality, originality, or
+correspondence by itself — you have no way to hear it, so judge the proposal
+exactly as you would judge one with no audio reference at all: on the text
+fields above alone.
 If you approve, evolved_content must be the CURRENT CANON CONTENT genuinely
 merged with the MUSICAL RELATIONSHIP described above — not a rewrite from
 scratch, and not unrelated text.

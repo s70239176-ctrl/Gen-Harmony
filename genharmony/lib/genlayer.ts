@@ -25,7 +25,7 @@ export const wagmiConfig = createConfig({
 });
 
 export const CONTRACT_ADDRESS =
-  "0xF631422E575219C552E0908d3dA032296FAEAb86" as const;
+  "0xC29fb5bc498D2D49008aCB3a1fEB9eaB19AB2cbD" as const;
 
 const GL_KEY = "genharmony_contributor_pk";
 
@@ -133,8 +133,8 @@ export function useHarmonyForge() {
     // writes
     submitSeed: (title: string, seedPrompt: string, genre: string) =>
       write("submit_seed", [title, seedPrompt, genre]).then(({ result }) => coerce<string>(result)),
-    proposeEvolution: (trackId: string, targetElement: string, musicalRelationship: string, keyTerms: string, type: string) =>
-      write("propose_evolution", [trackId, targetElement, musicalRelationship, keyTerms, type]).then(({ result, txHash }) => {
+    proposeEvolution: (trackId: string, targetElement: string, musicalRelationship: string, keyTerms: string, type: string, audioUrl: string = "", audioHash: string = "") =>
+      write("propose_evolution", [trackId, targetElement, musicalRelationship, keyTerms, type, audioUrl, audioHash]).then(({ result, txHash }) => {
         const id = String(coerce<unknown>(result));
         // propose_evolution returns a plain numeric proposal id, not a hash.
         // If the SDK failed to surface receipt.result, write() falls back to
