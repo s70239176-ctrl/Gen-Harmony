@@ -40,12 +40,18 @@ export interface Proposal {
   id: string;
   track_id: string;
   proposer: string;
-  contribution_text: string;
+  target_element: string;
+  musical_relationship: string;
+  key_terms: string;
+  audio_url?: string;
+  audio_hash?: string;
+  artifact_hash: string;
   contribution_type: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "stale";
   scores: ProposalScores | null;
   evolved_content: string | null;
   rationale: string | null;
+  track_version: number;
 }
 
 export interface MintedElement {

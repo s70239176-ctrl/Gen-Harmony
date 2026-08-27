@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Gavel, CheckCircle2, XCircle, Clock, RefreshCw, Hourglass } from "lucide-react";
+import { Gavel, CheckCircle2, XCircle, Clock, RefreshCw, Hourglass, Music2 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { VuMeter } from "./VuMeter";
 import { useHarmonyForge } from "@/lib/genlayer";
@@ -13,6 +13,8 @@ interface Verdict {
   status: "approved" | "rejected";
   composite_score: number;
   rationale: string | null;
+  audioUrl?: string;
+  audioHash?: string;
 }
 
 export function EvaluateProposalButton({
@@ -39,7 +41,7 @@ export function EvaluateProposalButton({
     return () => clearInterval(t);
   }, [state]);
 
-  function verdictFrom(p: { status: string; scores: { originality: number; quality: number; emotional: number; canon_fit: number } | null; rationale: string | null }): Verdict {
+  function verdictFrom(p: { status: string; scores: { originality: number; quality: number; emotional: number; canon_fit: number } | null; rationale: string | null; audio_url?: string; audio_hash?: string }): Verdict {
     const s = p.scores;
     const composite = s
       ? Math.round((s.originality + s.quality + s.emotional + s.canon_fit) / 4)
@@ -48,6 +50,8 @@ export function EvaluateProposalButton({
       status: p.status as "approved" | "rejected",
       composite_score: composite,
       rationale: p.rationale,
+      audioUrl: p.audio_url,
+      audioHash: p.audio_hash,
     };
   }
 
@@ -160,6 +164,18 @@ export function EvaluateProposalButton({
           </div>
           {verdict.rationale && (
             <p className="mt-2 font-body text-[13px] text-muted leading-snug">{verdict.rationale}</p>
+          )}
+          {verdict.audioHash && (
+            <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] text-muted">
+              <Music2 className="h-3 w-3 shrink-0" />
+              <span>
+                Audio referenced ({verdict.audioHash.slice(0, 10)}…) — not analyzed by the jury
+              </span>
+              {verdict.audioUrl && (
+                <a href={verdict.audioUrl} target="_blank" rel="noopener noreferrer"
+                  className="underline hover:text-ink">listen</a>
+              )}
+            </div>
           )}
         </div>
         <button onClick={() => onResolved?.()}

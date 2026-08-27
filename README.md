@@ -19,9 +19,9 @@ Connect an injected wallet (MetaMask or similar) and switch to the GenLayer Stud
 | Network | GenLayer Studio |
 | Chain ID | `61999` |
 | RPC URL | `https://studio.genlayer.com:8443/api` |
-| Contract address | `0xC29fb5bc498D2D49008aCB3a1fEB9eaB19AB2cbD` |
+| Contract address | `0x1b0bbafebeda54b01Ea1875aE53D5CA9D665fD0f` |
 | Contract source | [`genharmony/contracts/harmonyforge.py`](./genharmony/contracts/harmonyforge.py) |
-| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0xC29fb5bc498D2D49008aCB3a1fEB9eaB19AB2cbD) |
+| Explorer | [View on GenLayer Studio Explorer](https://explorer-studio.genlayer.com/address/0x1b0bbafebeda54b01Ea1875aE53D5CA9D665fD0f) |
 
 ## Tech Stack
 
@@ -95,7 +95,7 @@ Being direct about these rather than glossing over them:
 - **Audio is not on-chain.** Audio URLs pasted into the player are stored in the browser's `localStorage`, keyed per track version — not written to the contract. This is a UI convenience only and does not persist across browsers/devices, and is lost if local storage is cleared.
 - **Track history is reconstructed client-side, not stored as a first-class contract record.** The contract does not currently store a per-track history array; the frontend derives version history by scanning all proposals and filtering for ones that belong to the track and were approved. This works correctly at demo scale but scales linearly with total proposals across the whole contract, not just the one track — a production version should add a dedicated `get_track_history` view backed by real on-chain storage.
 - **Audio can now be content-addressed, but still not musically verified.** A proposal can optionally reference a real audio file: the contributor's browser computes a SHA-256 hash of the actual audio bytes (`audio_hash`), which is folded into `artifact_hash` alongside the text fields and an `audio_url` for playback. This is a genuine integrity binding — it proves which exact file was referenced and that it wasn't swapped after submission. It is **not** musical verification: GenVM cannot decode, play, or analyze audio content in any way, so correspondence, provenance, and originality judgments are still made by the LLM jury from the text fields alone. The jury prompt explicitly instructs jurors that an audio reference's mere presence is not evidence of quality, originality, or correspondence — this is enforced in the prompt, not just documented here, to prevent an unlistenable attachment from being treated as a positive signal.
-- **Provenance and originality are LLM-judgment-only, not verified against real evidence.** The jury's only external context is a single best-effort fetch of a Wikipedia page for the track's genre. This lets the LLM flag generic/clichéd contributions and check that scores correspond to a proposal's own stated key terms, but it is not a real plagiarism detection system, and it cannot verify that a musical idea traces back to any genuine external source — both should be understood as best-effort judgment calls, not verified guarantees.
+- **Provenance and originality are LLM-judgment-only, not verified against real evidence.** The jury's external context is two fixed, best-effort fetches: a Wikipedia page for the track's genre, and a general music-terminology glossary page, both fetched by URL (GenVM has no search capability - it can only render a specific, already-known page, not look anything up). This gives the LLM a somewhat richer reference for judging whether a proposal's key terms are used in a musically coherent way, but it remains fundamentally an LLM's best-effort judgment, not a real plagiarism or similarity detection system - it cannot search for or verify whether a musical idea traces back to any genuine external source. Adding more fixed sources could not change this, since the underlying limitation is the absence of search, not the number of pages fetched.
 - **Testnet only.** This is deployed on GenLayer Studio, not a production GenLayer network. Contract state can be reset by redeployment, and gas/economics are not representative of mainnet conditions.
 - **Reward formula is a simple quadratic curve**, not economically tuned — it exists to demonstrate the pull-payment reward mechanism working end-to-end, not as a finished tokenomics model.
 
@@ -105,7 +105,6 @@ Being direct about these rather than glossing over them:
 - Replace the localStorage signing key with proper wallet-based signing once GenLayer's browser wallet / Snap integration is stable
 - Add a real `get_track_history` view to the contract so version history is a first-class on-chain record instead of a client-side reconstruction
 - Store audio references on-chain (or via a decentralized storage pointer) instead of localStorage
-- Expand the LLM jury's web context beyond a single Wikipedia fetch — pull from multiple sources for genre grounding and originality checking
 
 **Phase 3**
 - Multi-track "album" grouping and cross-track collaboration

@@ -540,9 +540,22 @@ Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 char
         return result["equivalent"]
 
     def _judge_evolution(self, track: dict, proposal: dict) -> dict:
-        genre   = track.get("genre", "")
-        url     = ("https://en.wikipedia.org/wiki/" + genre.strip().replace(" ", "_")) if genre else ""
-        context = self._fetch_web_context(url)
+        genre = track.get("genre", "")
+        genre_url = ("https://en.wikipedia.org/wiki/" + genre.strip().replace(" ", "_")) if genre else ""
+        genre_context = self._fetch_web_context(genre_url)
+
+        # Fixed, general music-theory-terms reference — same fetch-a-known-URL
+        # mechanism as the genre lookup above, not a search. Gives the jury a
+        # stable reference for whether key_terms are used in a musically
+        # coherent way. This does NOT constitute an originality/plagiarism
+        # check: GenVM has no search capability, so there is no way to check
+        # whether a proposed idea already exists anywhere — only to fetch
+        # pages whose URLs are already known in advance.
+        glossary_context = self._fetch_web_context(
+            "https://en.wikipedia.org/wiki/Glossary_of_music_terminology"
+        )
+
+        context = f"GENRE CONTEXT:\n{genre_context}\n\nMUSIC TERMINOLOGY REFERENCE:\n{glossary_context}"
         prompt  = self._build_prompt(track, proposal, context)
 
         def leader_fn():
