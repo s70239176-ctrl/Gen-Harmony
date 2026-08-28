@@ -539,7 +539,12 @@ Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 char
             return False
         return result["equivalent"]
 
-    def _judge_evolution(self, track: dict, proposal: dict) -> dict:
+    def _fetch_judgment_context(self, track: dict) -> str:
+        """Fetch both reference sources fresh. Called independently by the
+        leader and by each validator (never once, outside the equivalence-
+        principle path) so every gl.nondet call — including these fetches,
+        not just exec_prompt — runs inside a leader/validator-comparable
+        path, consistent with GenVM's nondet execution model."""
         genre = track.get("genre", "")
         genre_url = ("https://en.wikipedia.org/wiki/" + genre.strip().replace(" ", "_")) if genre else ""
         genre_context = self._fetch_web_context(genre_url)
@@ -555,10 +560,12 @@ Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 char
             "https://en.wikipedia.org/wiki/Glossary_of_music_terminology"
         )
 
-        context = f"GENRE CONTEXT:\n{genre_context}\n\nMUSIC TERMINOLOGY REFERENCE:\n{glossary_context}"
-        prompt  = self._build_prompt(track, proposal, context)
+        return f"GENRE CONTEXT:\n{genre_context}\n\nMUSIC TERMINOLOGY REFERENCE:\n{glossary_context}"
 
+    def _judge_evolution(self, track: dict, proposal: dict) -> dict:
         def leader_fn():
+            context = self._fetch_judgment_context(track)
+            prompt = self._build_prompt(track, proposal, context)
             result = gl.nondet.exec_prompt(prompt, response_format="json")
             if not isinstance(result, dict):
                 raise gl.vm.UserError("leader returned non-dict")
@@ -587,6 +594,8 @@ Return ONLY a JSON object: {{"equivalent": boolean, "reason": string (<=200 char
 
             # --- Independent re-judgment: decision + per-score integrity ---
             try:
+                context = self._fetch_judgment_context(track)
+                prompt = self._build_prompt(track, proposal, context)
                 own = gl.nondet.exec_prompt(prompt, response_format="json")
             except Exception:
                 return False
